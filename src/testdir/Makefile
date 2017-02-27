@@ -12,7 +12,7 @@ SCRIPTSOURCE = ../../runtime
 #   The output goes into a file "valgrind.testN"
 #   Vim should be compiled with EXITFREE to avoid false warnings.
 #   This will make testing about 10 times as slow.
-# VALGRIND = valgrind --tool=memcheck --leak-check=yes --num-callers=25 --log-file=valgrind.$*
+#VALGRIND = valgrind --tool=memcheck --leak-check=yes --track-origins=yes --num-callers=35 --track-fds=yes --log-file=valgrind.$*
 
 default: nongui
 
