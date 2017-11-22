@@ -1278,10 +1278,18 @@ gui_mch_init_check(void)
 #endif
     open_app_context();
     if (app_context != NULL)
+    {
 	gui.dpy = XtOpenDisplay(app_context, 0, VIM_NAME, VIM_CLASS,
 		cmdline_options, XtNumber(cmdline_options),
 		CARDINAL &gui_argc, gui_argv);
 
+# if defined(FEAT_FLOAT) && defined(LC_NUMERIC)
+	/* Call to XtOpenDisplay() may have changed the locale from
+	 * the environment. Set back LC_NUMERIC to "C" to make sure
+	 * that strtod() uses dot as as decimal separator. */
+	setlocale(LC_NUMERIC, "C");
+#endif
+    }
     if (app_context == NULL || gui.dpy == NULL)
     {
 	gui.dying = TRUE;
@@ -1328,6 +1336,16 @@ gui_mch_init(void)
     /* Uncomment this to enable synchronous mode for debugging */
     XSynchronize(gui.dpy, True);
 #endif
+
+# if defined(FEAT_FLOAT) && defined(LC_NUMERIC)
+    {
+	char *p = setlocale(LC_NUMERIC, NULL);
+
+	/* Make sure strtod() uses a decimal point, not a comma. */
+	if (p == NULL || strcmp(p, "C") != 0)
+	   setlocale(LC_NUMERIC, "C");
+    }
+# endif
 
     vimShell = XtVaAppCreateShell(VIM_NAME, VIM_CLASS,
 	    applicationShellWidgetClass, gui.dpy, NULL);
