@@ -242,11 +242,11 @@ endfunc
 
 func Test_args_with_quote()
   " Only on Unix can a file name include a double quote.
-  if has('unix')
-    args \"foobar
-    call assert_equal('"foobar', argv(0))
-    %argdelete
-  endif
+  CheckUnix
+
+  args \"foobar
+  call assert_equal('"foobar', argv(0))
+  %argdelete
 endfunc
 
 " Test for 0argadd and 0argedit
@@ -423,9 +423,17 @@ func Test_argdelete()
   last
   argdelete %
   call assert_equal(['b'], argv())
-  call assert_fails('argdelete', 'E471:')
+  call assert_fails('argdelete', 'E610:')
   call assert_fails('1,100argdelete', 'E16:')
-  %argd
+  call assert_fails('argdel /\)/', 'E55:')
+  call assert_fails('1argdel 1', 'E474:')
+
+  call Reset_arglist()
+  args a b c d
+  next
+  argdel
+  call Assert_argc(['a', 'c', 'd'])
+  %argdel
 endfunc
 
 func Test_argdelete_completion()
@@ -471,13 +479,16 @@ func Test_arglist_autocmd()
   new
   " redefine arglist; go to Xxx1
   next! Xxx1 Xxx2 Xxx3
-  " open window for all args
+  " open window for all args; Reading Xxx2 will change the arglist and the
+  " third window will get Xxx1:
+  "   win 1: Xxx1
+  "   win 2: Xxx2
+  "   win 3: Xxx1
   all
   call assert_equal('test file Xxx1', getline(1))
   wincmd w
   wincmd w
   call assert_equal('test file Xxx1', getline(1))
-  " should now be in Xxx2
   rewind
   call assert_equal('test file Xxx2', getline(1))
 
@@ -513,9 +524,10 @@ func Test_argdo()
   bwipe Xa.c Xb.c Xc.c
 endfunc
 
-" Test for quiting Vim with unedited files in the argument list
+" Test for quitting Vim with unedited files in the argument list
 func Test_quit_with_arglist()
   CheckRunVimInTerminal
+
   let buf = RunVimInTerminal('', {'rows': 6})
   call term_sendkeys(buf, ":set nomore\n")
   call term_sendkeys(buf, ":args a b c\n")
@@ -546,6 +558,24 @@ func Test_quit_with_arglist()
   call delete('.a.swp')
   call delete('.b.swp')
   call delete('.c.swp')
+endfunc
+
+" Test for ":all" not working when in the cmdline window
+func Test_all_not_allowed_from_cmdwin()
+  CheckFeature cmdwin
+
+  au BufEnter * all
+  next x
+  " Use try/catch here, somehow assert_fails() doesn't work on MS-Windows
+  " console.
+  let caught = 'no'
+  try
+    exe ":norm! 7q?apat\<CR>"
+  catch /E11:/
+    let caught = 'yes'
+  endtry
+  call assert_equal('yes', caught)
+  au! BufEnter
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

@@ -1,4 +1,5 @@
 " Tests for regexp in latin1 encoding
+
 set encoding=latin1
 scriptencoding latin1
 
@@ -908,6 +909,13 @@ func Test_start_end_of_buffer_match()
   set regexpengine=2
   call Regex_start_end_buffer()
   bwipe!
+endfunc
+
+func Test_ze_before_zs()
+  call assert_equal('', matchstr(' ', '\%#=1\ze \zs'))
+  call assert_equal('', matchstr(' ', '\%#=2\ze \zs'))
+  call assert_equal(repeat([''], 10), matchlist(' ', '\%#=1\ze \zs'))
+  call assert_equal(repeat([''], 10), matchlist(' ', '\%#=2\ze \zs'))
 endfunc
 
 " Check for detecting error

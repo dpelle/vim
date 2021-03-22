@@ -35,12 +35,12 @@ func Test_mkdir_p()
   endtry
   " 'p' doesn't suppress real errors
   call writefile([], 'Xfile')
-  call assert_fails('call mkdir("Xfile", "p")', 'E739')
+  call assert_fails('call mkdir("Xfile", "p")', 'E739:')
   call delete('Xfile')
   call delete('Xmkdir', 'rf')
   call assert_equal(0, mkdir(test_null_string()))
-  call assert_fails('call mkdir([])', 'E730')
-  call assert_fails('call mkdir("abc", [], [])', 'E745')
+  call assert_fails('call mkdir([])', 'E730:')
+  call assert_fails('call mkdir("abc", [], [])', 'E745:')
 endfunc
 
 func Test_line_continuation()
@@ -68,24 +68,42 @@ func Test_for_invalid()
   call assert_fails("for x in 99", 'E714:')
   call assert_fails("for x in 'asdf'", 'E714:')
   call assert_fails("for x in {'a': 9}", 'E714:')
+
+  if 0
+    /1/5/2/s/\n
+  endif
+  redraw
 endfunc
 
 func Test_readfile_binary()
   new
   call setline(1, ['one', 'two', 'three'])
   setlocal ff=dos
-  silent write XReadfile
-  let lines = 'XReadfile'->readfile()
+  silent write XReadfile_bin
+  let lines = 'XReadfile_bin'->readfile()
   call assert_equal(['one', 'two', 'three'], lines)
-  let lines = readfile('XReadfile', '', 2)
+  let lines = readfile('XReadfile_bin', '', 2)
   call assert_equal(['one', 'two'], lines)
-  let lines = readfile('XReadfile', 'b')
+  let lines = readfile('XReadfile_bin', 'b')
   call assert_equal(["one\r", "two\r", "three\r", ""], lines)
-  let lines = readfile('XReadfile', 'b', 2)
+  let lines = readfile('XReadfile_bin', 'b', 2)
   call assert_equal(["one\r", "two\r"], lines)
 
   bwipe!
-  call delete('XReadfile')
+  call delete('XReadfile_bin')
+endfunc
+
+func Test_readfile_bom()
+  call writefile(["\ufeffFOO", "FOO\ufeffBAR"], 'XReadfile_bom')
+  call assert_equal(['FOO', 'FOOBAR'], readfile('XReadfile_bom'))
+  call delete('XReadfile_bom')
+endfunc
+
+func Test_readfile_max()
+  call writefile(range(1, 4), 'XReadfile_max')
+  call assert_equal(['1', '2'], readfile('XReadfile_max', '', 2))
+  call assert_equal(['3', '4'], readfile('XReadfile_max', '', -2))
+  call delete('XReadfile_max')
 endfunc
 
 func Test_let_errmsg()
@@ -122,6 +140,12 @@ func Test_string_concatenation()
   let a = 'a'
   let a..=b
   call assert_equal('ab', a)
+
+  if has('float')
+    let a = 'A'
+    let b = 1.234
+    call assert_fails('echo a .. b', 'E806:')
+  endif
 endfunc
 
 " Test fix for issue #4507
@@ -199,6 +223,7 @@ func Test_vvar_scriptversion4()
   call assert_equal(15, 0o17)
   call assert_equal(15, 0O17)
   call assert_equal(18, 018)
+  call assert_equal(511, 0o777)
   call assert_equal(64, 0b1'00'00'00)
   call assert_equal(1048576, 0x10'00'00)
   call assert_equal(32768, 0o10'00'00)
@@ -214,6 +239,7 @@ func Test_vvar_scriptversion1()
   call assert_equal(15, 0o17)
   call assert_equal(15, 0O17)
   call assert_equal(18, 018)
+  call assert_equal(511, 0o777)
 endfunc
 
 func Test_scriptversion_fail()
@@ -235,10 +261,13 @@ func Test_execute_cmd_with_null()
   endif
 endfunc
 
-func Test_numbersize()
-  " This will fail on systems without 64 bit int support or when not configured
-  " correctly.
+func Test_number_max_min_size()
+  " This will fail on systems without 64 bit number support or when not
+  " configured correctly.
   call assert_equal(64, v:numbersize)
+
+  call assert_true(v:numbermin < -9999999)
+  call assert_true(v:numbermax > 9999999)
 endfunc
 
 func Assert_reg(name, type, value, valuestr, expr, exprstr)
@@ -530,6 +559,28 @@ func Test_setreg_basic()
   call assert_fails('call setreg("/", ["1", "2"])', 'E883:')
   call assert_fails('call setreg("=", ["1", "2"])', 'E883:')
   call assert_fails('call setreg(1, ["", "", [], ""])', 'E730:')
+endfunc
+
+func Test_curly_assignment()
+  let s:svar = 'svar'
+  let g:gvar = 'gvar'
+  let lname = 'gvar'
+  let gname = 'gvar'
+  let {'s:'.lname} = {'g:'.gname}
+  call assert_equal('gvar', s:gvar)
+  let s:gvar = ''
+  let { 's:'.lname } = { 'g:'.gname }
+  call assert_equal('gvar', s:gvar)
+  let s:gvar = ''
+  let { 's:' . lname } = { 'g:' . gname }
+  call assert_equal('gvar', s:gvar)
+  let s:gvar = ''
+  let { 's:' .. lname } = { 'g:' .. gname }
+  call assert_equal('gvar', s:gvar)
+
+  unlet s:svar
+  unlet s:gvar
+  unlet g:gvar
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

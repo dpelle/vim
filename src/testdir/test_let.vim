@@ -250,23 +250,23 @@ func Test_let_termcap()
     let &t_k1 = old_t_k1
   endif
 
-  call assert_fails('let x = &t_xx', 'E113')
+  call assert_fails('let x = &t_xx', 'E113:')
   let &t_xx = "yes"
   call assert_equal("yes", &t_xx)
   let &t_xx = ""
-  call assert_fails('let x = &t_xx', 'E113')
+  call assert_fails('let x = &t_xx', 'E113:')
 endfunc
 
 func Test_let_option_error()
   let _w = &tw
   let &tw = 80
-  call assert_fails('let &tw .= 1', 'E734')
+  call assert_fails('let &tw .= 1', 'E734:')
   call assert_equal(80, &tw)
   let &tw = _w
 
   let _w = &fillchars
   let &fillchars = "vert:|"
-  call assert_fails('let &fillchars += "diff:-"', 'E734')
+  call assert_fails('let &fillchars += "diff:-"', 'E734:')
   call assert_equal("vert:|", &fillchars)
   let &fillchars = _w
 endfunc
@@ -293,7 +293,7 @@ func Test_let_errors()
   let s = "var"
   let var = 1
   call assert_fails('let var += [1,2]', 'E734:')
-  call assert_fails('let {s}.1 = 2', 'E15:')
+  call assert_fails('let {s}.1 = 2', 'E18:')
   call assert_fails('let a[1] = 5', 'E121:')
   let l = [[1,2]]
   call assert_fails('let l[:][0] = [5]', 'E708:')
@@ -338,7 +338,7 @@ func Test_let_heredoc_fails()
   endfunc
   END
   call writefile(text, 'XheredocFail')
-  call assert_fails('source XheredocFail', 'E126:')
+  call assert_fails('source XheredocFail', 'E1145:')
   call delete('XheredocFail')
 
   let text =<< trim CodeEnd
@@ -347,7 +347,7 @@ func Test_let_heredoc_fails()
   endfunc
   CodeEnd
   call writefile(text, 'XheredocWrong')
-  call assert_fails('source XheredocWrong', 'E126:')
+  call assert_fails('source XheredocWrong', 'E1145:')
   call delete('XheredocWrong')
 
   let text =<< trim TEXTend

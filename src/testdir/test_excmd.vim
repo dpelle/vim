@@ -327,9 +327,13 @@ endfunc
 " Test for the :winsize command
 func Test_winsize_cmd()
   call assert_fails('winsize 1', 'E465:')
+  call assert_fails('winsize 1 x', 'E465:')
+  call assert_fails('win_getid(1)', 'E475: Invalid argument: _getid(1)')
+  " Actually changing the window size would be flaky.
 endfunc
 
 " Test for the :redir command
+" NOTE: if you run tests as root this will fail.  Don't run tests as root!
 func Test_redir_cmd()
   call assert_fails('redir @@', 'E475:')
   call assert_fails('redir abc', 'E475:')
@@ -346,13 +350,6 @@ func Test_redir_cmd()
     call assert_fails('redir > Xdir', 'E17:')
     call delete('Xdir', 'd')
   endif
-  if !has('bsd')
-    " Redirecting to a read-only file
-    call writefile([], 'Xfile')
-    call setfperm('Xfile', 'r--r--r--')
-    call assert_fails('redir! > Xfile', 'E190:')
-    call delete('Xfile')
-  endif
 
   " Test for redirecting to a register
   redir @q> | echon 'clean ' | redir END
@@ -363,6 +360,16 @@ func Test_redir_cmd()
   redir => color | echon 'blue ' | redir END
   redir =>> color | echon 'sky' | redir END
   call assert_equal('blue sky', color)
+endfunc
+
+func Test_redir_cmd_readonly()
+  CheckNotRoot
+
+  " Redirecting to a read-only file
+  call writefile([], 'Xfile')
+  call setfperm('Xfile', 'r--r--r--')
+  call assert_fails('redir! > Xfile', 'E190:')
+  call delete('Xfile')
 endfunc
 
 " Test for the :filetype command

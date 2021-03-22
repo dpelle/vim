@@ -432,7 +432,8 @@ get_indent_str(
     {
 	if (*ptr == TAB)
 	{
-	    if (!list || lcs_tab1)    // count a tab for what it is worth
+	    if (!list || curwin->w_lcs_chars.tab1)
+		// count a tab for what it is worth
 		count += ts - (count % ts);
 	    else
 		// In list mode, when tab is not set, count screen char width
@@ -462,7 +463,7 @@ get_indent_str_vtab(char_u *ptr, int ts, int *vts, int list)
     {
 	if (*ptr == TAB)    // count a tab for what it is worth
 	{
-	    if (!list || lcs_tab1)
+	    if (!list || curwin->w_lcs_chars.tab1)
 		count += tabstop_padding(count, ts, vts);
 	    else
 		// In list mode, when tab is not set, count screen char width
@@ -1049,7 +1050,7 @@ op_reindent(oparg_T *oap, int (*how)(void))
 	smsg(NGETTEXT("%ld line indented ",
 						 "%ld lines indented ", i), i);
     }
-    if (!cmdmod.lockmarks)
+    if ((cmdmod.cmod_flags & CMOD_LOCKMARKS) == 0)
     {
 	// set '[ and '] marks
 	curbuf->b_op_start = oap->start;
@@ -1662,7 +1663,9 @@ ex_retab(exarg_T *eap)
 			ptr = new_line + start_col;
 			for (col = 0; col < len; col++)
 			    ptr[col] = (col < num_tabs) ? '\t' : ' ';
-			ml_replace(lnum, new_line, FALSE);
+			if (ml_replace(lnum, new_line, FALSE) == OK)
+			    // "new_line" may have been copied
+			    new_line = curbuf->b_ml.ml_line_ptr;
 			if (first_line == 0)
 			    first_line = lnum;
 			last_line = lnum;

@@ -33,7 +33,7 @@ typedef struct {
     char_u	*name;	// funcref
     dict_T	*self;	// selfdict
 } luaV_Funcref;
-typedef void (*msgfunc_T)(char_u *);
+typedef int (*msgfunc_T)(char *);
 
 typedef struct {
     int lua_funcref;    // ref to a lua func
@@ -568,6 +568,11 @@ luaV_pushtypval(lua_State *L, typval_T *tv)
 	case VAR_FUNC:
 	    luaV_pushfuncref(L, tv->vval.v_string);
 	    break;
+	case VAR_PARTIAL:
+	    // TODO: handle partial arguments
+	    luaV_pushfuncref(L, partial_name(tv->vval.v_partial));
+	    break;
+
 	case VAR_BLOB:
 	    luaV_pushblob(L, tv->vval.v_blob);
 	    break;
@@ -788,11 +793,11 @@ luaV_msgfunc(lua_State *L, msgfunc_T mf)
     {
 	if (*p++ == '\0') // break?
 	{
-	    mf((char_u *) s);
+	    mf((char *)s);
 	    s = p;
 	}
     }
-    mf((char_u *) s);
+    mf((char *)s);
     lua_pop(L, 2); // original and modified strings
 }
 
@@ -2372,18 +2377,19 @@ lua_end(void)
     void
 ex_lua(exarg_T *eap)
 {
-    char *script;
-    if (lua_init() == FAIL) return;
-    script = (char *) script_get(eap, eap->arg);
-    if (!eap->skip)
+    char *script = (char *)script_get(eap, eap->arg);
+
+    if (!eap->skip && lua_init() == OK)
     {
-	char *s = (script) ? script :  (char *) eap->arg;
+	char *s = script != NULL ? script : (char *)eap->arg;
+
 	luaV_setrange(L, eap->line1, eap->line2);
 	if (luaL_loadbuffer(L, s, strlen(s), LUAVIM_CHUNKNAME)
 		|| lua_pcall(L, 0, 0, 0))
 	    luaV_emsg(L);
     }
-    if (script != NULL) vim_free(script);
+    if (script != NULL)
+	vim_free(script);
 }
 
     void

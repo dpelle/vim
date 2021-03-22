@@ -158,15 +158,22 @@
 # define mch_access(n, p)	access(vms_fixfilename(n), (p))
 				// see mch_open() comment
 # define mch_fopen(n, p)	fopen(vms_fixfilename(n), (p))
-# define mch_fstat(n, p)	fstat(vms_fixfilename(n), (p))
-	// VMS does not have lstat()
+# define mch_fstat(n, p)	fstat((n), (p))
+# undef HAVE_LSTAT	        // VMS does not have lstat()
 # define mch_stat(n, p)		stat(vms_fixfilename(n), (p))
-# define mch_rmdir(n)		rmdir(vms_fixfilename(n))
 #else
 # ifndef MSWIN
 #   define mch_access(n, p)	access((n), (p))
 # endif
-# define mch_fstat(n, p)	fstat((n), (p))
+
+// Use 64-bit fstat function if available.
+// NOTE: This condition is the same as for the stat_T type.
+# if (defined(_MSC_VER) && (_MSC_VER >= 1300)) || defined(__MINGW32__)
+#  define mch_fstat(n, p)	_fstat64((n), (p))
+# else
+#  define mch_fstat(n, p)	fstat((n), (p))
+# endif
+
 # ifdef MSWIN	// has its own mch_stat() function
 #  define mch_stat(n, p)	vim_stat((n), (p))
 # else
@@ -245,6 +252,7 @@
 #define MB_CHARLEN(p)	    (has_mbyte ? mb_charlen(p) : (int)STRLEN(p))
 #define MB_CHAR2LEN(c)	    (has_mbyte ? mb_char2len(c) : 1)
 #define PTR2CHAR(p)	    (has_mbyte ? mb_ptr2char(p) : (int)*(p))
+#define MB_CHAR2BYTES(c, b) do { if (has_mbyte) (b) += (*mb_char2bytes)((c), (b)); else *(b)++ = (c); } while(0)
 
 #ifdef FEAT_AUTOCHDIR
 # define DO_AUTOCHDIR do { if (p_acd) do_autochdir(); } while (0)
@@ -381,3 +389,10 @@
 
 // Inlined version of ga_grow().  Especially useful if "n" is a constant.
 #define GA_GROW(gap, n) (((gap)->ga_maxlen - (gap)->ga_len < n) ? ga_grow_inner((gap), (n)) : OK)
+
+#ifndef MIN
+# define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
+# define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif

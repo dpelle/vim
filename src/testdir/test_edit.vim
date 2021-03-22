@@ -156,9 +156,8 @@ endfunc
 
 func Test_edit_06()
   " Test in diff mode
-  if !has("diff") || !executable("diff")
-    return
-  endif
+  CheckFeature diff
+  CheckExecutable diff
   new
   call setline(1, ['abc', 'xxx', 'yyy'])
   vnew
@@ -412,13 +411,38 @@ func Test_edit_13()
   bwipe!
 endfunc
 
+" Test for autoindent removing indent when insert mode is stopped.  Some parts
+" of the code is exercised only when interactive mode is used. So use Vim in a
+" terminal.
+func Test_autoindent_remove_indent()
+  CheckRunVimInTerminal
+  let buf = RunVimInTerminal('-N Xfile', {'rows': 6, 'cols' : 20})
+  call TermWait(buf)
+  call term_sendkeys(buf, ":set autoindent\n")
+  " leaving insert mode in a new line with indent added by autoindent, should
+  " remove the indent.
+  call term_sendkeys(buf, "i\<Tab>foo\<CR>\<Esc>")
+  " Need to delay for sometime, otherwise the code in getchar.c will not be
+  " exercised.
+  call TermWait(buf, 50)
+  " when a line is wrapped and the cursor is at the start of the second line,
+  " leaving insert mode, should move the cursor back to the first line.
+  call term_sendkeys(buf, "o" .. repeat('x', 20) .. "\<Esc>")
+  " Need to delay for sometime, otherwise the code in getchar.c will not be
+  " exercised.
+  call TermWait(buf, 50)
+  call term_sendkeys(buf, ":w\n")
+  call TermWait(buf)
+  call StopVimInTerminal(buf)
+  call assert_equal(["\tfoo", '', repeat('x', 20)], readfile('Xfile'))
+  call delete('Xfile')
+endfunc
+
 func Test_edit_CR()
   " Test for <CR> in insert mode
   " basically only in quickfix mode ist tested, the rest
   " has been taken care of by other tests
-  if !has("quickfix")
-    return
-  endif
+  CheckFeature quickfix
   botright new
   call writefile(range(1, 10), 'Xqflist.txt')
   call setqflist([{'filename': 'Xqflist.txt', 'lnum': 2}])
@@ -446,10 +470,9 @@ func Test_edit_CR()
 endfunc
 
 func Test_edit_CTRL_()
+  CheckFeature rightleft
   " disabled for Windows builds, why?
-  if !has("rightleft") || has("win32")
-    return
-  endif
+  CheckNotMSWindows
   let _encoding=&encoding
   set encoding=utf-8
   " Test for CTRL-_
@@ -684,23 +707,26 @@ endfunc
 
 func Test_edit_CTRL_N()
   " Check keyword completion
-  new
-  set complete=.
-  call setline(1, ['INFER', 'loWER', '', '', ])
-  call cursor(3, 1)
-  call feedkeys("Ai\<c-n>\<cr>\<esc>", "tnix")
-  call feedkeys("ILO\<c-n>\<cr>\<esc>", 'tnix')
-  call assert_equal(['INFER', 'loWER', 'i', 'LO', '', ''], getline(1, '$'))
-  %d
-  call setline(1, ['INFER', 'loWER', '', '', ])
-  call cursor(3, 1)
-  set ignorecase infercase
-  call feedkeys("Ii\<c-n>\<cr>\<esc>", "tnix")
-  call feedkeys("ILO\<c-n>\<cr>\<esc>", 'tnix')
-  call assert_equal(['INFER', 'loWER', 'infer', 'LOWER', '', ''], getline(1, '$'))
+  for e in ['latin1', 'utf-8']
+    exe 'set encoding=' .. e
+    new
+    set complete=.
+    call setline(1, ['INFER', 'loWER', '', '', ])
+    call cursor(3, 1)
+    call feedkeys("Ai\<c-n>\<cr>\<esc>", "tnix")
+    call feedkeys("ILO\<c-n>\<cr>\<esc>", 'tnix')
+    call assert_equal(['INFER', 'loWER', 'i', 'LO', '', ''], getline(1, '$'), e)
+    %d
+    call setline(1, ['INFER', 'loWER', '', '', ])
+    call cursor(3, 1)
+    set ignorecase infercase
+    call feedkeys("Ii\<c-n>\<cr>\<esc>", "tnix")
+    call feedkeys("ILO\<c-n>\<cr>\<esc>", 'tnix')
+    call assert_equal(['INFER', 'loWER', 'infer', 'LOWER', '', ''], getline(1, '$'), e)
 
-  set noignorecase noinfercase complete&
-  bw!
+    set noignorecase noinfercase complete&
+    bw!
+  endfor
 endfunc
 
 func Test_edit_CTRL_O()
@@ -951,9 +977,7 @@ func Test_edit_CTRL_Z()
 endfunc
 
 func Test_edit_DROP()
-  if !has("dnd")
-    return
-  endif
+  CheckFeature dnd
   new
   call setline(1, ['abc def ghi'])
   call cursor(1, 1)
@@ -967,9 +991,7 @@ func Test_edit_DROP()
 endfunc
 
 func Test_edit_CTRL_V()
-  if has("ebcdic")
-    return
-  endif
+  CheckFeature ebcdic
   new
   call setline(1, ['abc'])
   call cursor(2, 1)
@@ -1009,12 +1031,11 @@ endfunc
 func Test_edit_F21()
   " Pressing <f21>
   " sends a netbeans command
-  if has("netbeans_intg")
-    new
-    " I have no idea what this is supposed to do :)
-    call feedkeys("A\<F21>\<F1>\<esc>", 'tnix')
-    bw
-  endif
+  CheckFeature netbeans_intg
+  new
+  " I have no idea what this is supposed to do :)
+  call feedkeys("A\<F21>\<F1>\<esc>", 'tnix')
+  bw
 endfunc
 
 func Test_edit_HOME_END()
@@ -1095,9 +1116,7 @@ endfunc
 
 func Test_edit_MOUSE()
   " This is a simple test, since we not really using the mouse here
-  if !has("mouse")
-    return
-  endif
+  CheckFeature mouse
   10new
   call setline(1, range(1, 100))
   call cursor(1, 1)
@@ -1366,10 +1385,8 @@ func Test_edit_rightleft()
 endfunc
 
 func Test_edit_complete_very_long_name()
-  if !has('unix')
-    " Long directory names only work on Unix.
-    return
-  endif
+  " Long directory names only work on Unix.
+  CheckUnix
 
   let dirname = getcwd() . "/Xdir"
   let longdirname = dirname . repeat('/' . repeat('d', 255), 4)
@@ -1459,31 +1476,40 @@ endfunc
 
 func Test_edit_InsertLeave()
   new
+  au InsertLeavePre * let g:did_au_pre = 1
   au InsertLeave * let g:did_au = 1
+  let g:did_au_pre = 0
   let g:did_au = 0
   call feedkeys("afoo\<Esc>", 'tx')
+  call assert_equal(1, g:did_au_pre)
   call assert_equal(1, g:did_au)
   call assert_equal('foo', getline(1))
 
+  let g:did_au_pre = 0
   let g:did_au = 0
   call feedkeys("Sbar\<C-C>", 'tx')
+  call assert_equal(1, g:did_au_pre)
   call assert_equal(0, g:did_au)
   call assert_equal('bar', getline(1))
 
   inoremap x xx<Esc>
+  let g:did_au_pre = 0
   let g:did_au = 0
   call feedkeys("Saax", 'tx')
+  call assert_equal(1, g:did_au_pre)
   call assert_equal(1, g:did_au)
   call assert_equal('aaxx', getline(1))
 
   inoremap x xx<C-C>
+  let g:did_au_pre = 0
   let g:did_au = 0
   call feedkeys("Sbbx", 'tx')
+  call assert_equal(1, g:did_au_pre)
   call assert_equal(0, g:did_au)
   call assert_equal('bbxx', getline(1))
 
   bwipe!
-  au! InsertLeave
+  au! InsertLeave InsertLeavePre
   iunmap x
 endfunc
 
@@ -1600,6 +1626,31 @@ func Test_edit_illegal_filename()
   close!
 endfunc
 
+" Test for editing a directory
+func Test_edit_is_a_directory()
+  CheckEnglish
+  let dirname = getcwd() . "/Xdir"
+  call mkdir(dirname, 'p')
+
+  new
+  redir => msg
+  exe 'edit' dirname
+  redir END
+  call assert_match("is a directory$", split(msg, "\n")[0])
+  bwipe!
+
+  let dirname .= '/'
+
+  new
+  redir => msg
+  exe 'edit' dirname
+  redir END
+  call assert_match("is a directory$", split(msg, "\n")[0])
+  bwipe!
+
+  call delete(dirname, 'rf')
+endfunc
+
 " Test for editing a file using invalid file encoding
 func Test_edit_invalid_encoding()
   CheckEnglish
@@ -1682,7 +1733,8 @@ endfunc
 " Test for editing a file without read permission
 func Test_edit_file_no_read_perm()
   CheckUnix
-  CheckNotBSD
+  CheckNotRoot
+
   call writefile(['one', 'two'], 'Xfile')
   call setfperm('Xfile', '-w-------')
   new
@@ -1711,8 +1763,7 @@ endfunc
 func Test_edit_hkmap()
   CheckFeature rightleft
   if has('win32') && !has('gui')
-    " Test fails on the MS-Windows terminal version
-    return
+    throw 'Skipped: fails on the MS-Windows terminal version'
   endif
   new
 
@@ -1793,6 +1844,31 @@ func Test_edit_lastline_scroll()
   call assert_equal(3, line('w0'))
 
   close!
+endfunc
+
+func Test_edit_browse()
+  " in the GUI this opens a file picker, we only test the terminal behavior
+  CheckNotGui
+
+  " ":browse xxx" checks for the FileExplorer augroup and assumes editing "."
+  " works then.
+  augroup FileExplorer
+    au!
+  augroup END
+
+  " When the USE_FNAME_CASE is defined this used to cause a crash.
+  browse enew
+  bwipe!
+
+  browse split
+  bwipe!
+endfunc
+
+func Test_read_invalid()
+  set encoding=latin1
+  " This was not properly checking for going past the end.
+  call assert_fails('r`=', 'E484')
+  set encoding=utf-8
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

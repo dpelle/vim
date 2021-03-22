@@ -38,12 +38,12 @@
  * argument for tputs().
  */
 # ifdef VMS
-#  define TPUTSFUNCAST
+#  define TPUTSFUNCAST (void (*)(unsigned int))
 # else
 #  ifdef HAVE_OUTFUNTYPE
 #   define TPUTSFUNCAST (outfuntype)
 #  else
-#   define TPUTSFUNCAST (int (*)())
+#   define TPUTSFUNCAST (int (*)(int))
 #  endif
 # endif
 #endif
@@ -196,6 +196,11 @@ static char_u *vim_tgetstr(char *s, char_u **pp);
 
 static int  detected_8bit = FALSE;	// detected 8-bit terminal
 
+#if (defined(UNIX) || defined(VMS))
+static int focus_mode = FALSE; // xterm's "focus reporting" availability
+static int focus_state = FALSE; // TRUE if the terminal window gains focus
+#endif
+
 #ifdef FEAT_TERMRESPONSE
 // When the cursor shape was detected these values are used:
 // 1: block, 2: underline, 3: vertical bar
@@ -297,7 +302,7 @@ static struct builtin_term builtin_termcaps[] =
     {(int)KS_UE,	"\033[0m"},
     {(int)KS_CZH,	"\033[3m"},
     {(int)KS_CZR,	"\033[0m"},
-#if defined(__MORPHOS__) || defined(__AROS__)
+#if defined(__amigaos4__) || defined(__MORPHOS__) || defined(__AROS__)
     {(int)KS_CCO,	"8"},		// allow 8 colors
 #  ifdef TERMINFO
     {(int)KS_CAB,	"\033[4%p1%dm"},// set background color
@@ -908,16 +913,20 @@ static struct builtin_term builtin_termcaps[] =
     {(int)KS_CRT,	IF_EB("\033[23;2t", ESC_STR "[23;2t")},
     {(int)KS_SSI,	IF_EB("\033[22;1t", ESC_STR "[22;1t")},
     {(int)KS_SRI,	IF_EB("\033[23;1t", ESC_STR "[23;1t")},
+#  if (defined(UNIX) || defined(VMS))
+    {(int)KS_FD,	IF_EB("\033[?1004l", ESC_STR "[?1004l")},
+    {(int)KS_FE,	IF_EB("\033[?1004h", ESC_STR "[?1004h")},
+#  endif
 
     {K_UP,		IF_EB("\033O*A", ESC_STR "O*A")},
     {K_DOWN,		IF_EB("\033O*B", ESC_STR "O*B")},
     {K_RIGHT,		IF_EB("\033O*C", ESC_STR "O*C")},
     {K_LEFT,		IF_EB("\033O*D", ESC_STR "O*D")},
     // An extra set of cursor keys for vt100 mode
-    {K_XUP,		IF_EB("\033[1;*A", ESC_STR "[1;*A")},
-    {K_XDOWN,		IF_EB("\033[1;*B", ESC_STR "[1;*B")},
-    {K_XRIGHT,		IF_EB("\033[1;*C", ESC_STR "[1;*C")},
-    {K_XLEFT,		IF_EB("\033[1;*D", ESC_STR "[1;*D")},
+    {K_XUP,		IF_EB("\033[@;*A", ESC_STR "[@;*A")},
+    {K_XDOWN,		IF_EB("\033[@;*B", ESC_STR "[@;*B")},
+    {K_XRIGHT,		IF_EB("\033[@;*C", ESC_STR "[@;*C")},
+    {K_XLEFT,		IF_EB("\033[@;*D", ESC_STR "[@;*D")},
     // An extra set of function keys for vt100 mode
     {K_XF1,		IF_EB("\033O*P", ESC_STR "O*P")},
     {K_XF2,		IF_EB("\033O*Q", ESC_STR "O*Q")},
@@ -1763,6 +1772,7 @@ get_term_entries(int *height, int *width)
 report_term_error(char *error_msg, char_u *term)
 {
     struct builtin_term *termp;
+    int			i;
 
     mch_errmsg("\r\n");
     if (error_msg != NULL)
@@ -1787,6 +1797,10 @@ report_term_error(char *error_msg, char_u *term)
 	    mch_errmsg("\r\n");
 	}
     }
+    // Output extra 'cmdheight' line breaks to avoid that the following error
+    // message overwrites the last terminal name.
+    for (i = 1; i < p_ch; ++i)
+	mch_errmsg("\r\n");
 }
 
     static void
@@ -1795,7 +1809,7 @@ report_default_term(char_u *term)
     mch_errmsg(_("defaulting to '"));
     mch_errmsg((char *)term);
     mch_errmsg("'\r\n");
-    if (emsg_silent == 0)
+    if (emsg_silent == 0 && !in_assert_fails)
     {
 	screen_start();	// don't know where cursor is now
 	out_flush();
@@ -2037,6 +2051,28 @@ set_termname(char_u *term)
     }
 #else
     set_mouse_termcode(KS_MOUSE, (char_u *)"\233M");
+#endif
+
+#ifdef FEAT_MOUSE_XTERM
+    // focus reporting is supported by xterm compatible terminals and tmux.
+    if (use_xterm_like_mouse(term))
+    {
+	char_u name[3];
+
+	// handle focus in event
+	name[0] = KS_EXTRA;
+	name[1] = KE_FOCUSGAINED;
+	name[2] = NUL;
+	add_termcode(name, (char_u *)"\033[I", FALSE);
+
+	// handle focus out event
+	name[1] = KE_FOCUSLOST;
+	add_termcode(name, (char_u *)"\033[O", FALSE);
+
+	focus_mode = TRUE;
+	focus_state = TRUE;
+	need_gather = TRUE;
+    }
 #endif
 
 #ifdef USE_TERM_CONSOLE
@@ -2509,7 +2545,20 @@ out_flush(void)
 	// set out_pos to 0 before ui_write, to avoid recursiveness
 	len = out_pos;
 	out_pos = 0;
-	ui_write(out_buf, len);
+	ui_write(out_buf, len, FALSE);
+#ifdef FEAT_JOB_CHANNEL
+	if (ch_log_output)
+	{
+	    out_buf[len] = NUL;
+	    ch_log(NULL, "raw %s output: \"%s\"",
+# ifdef FEAT_GUI
+			(gui.in_use && !gui.dying && !gui.starting) ? "GUI" :
+# endif
+			"terminal",
+			out_buf);
+	    ch_log_output = FALSE;
+	}
+#endif
     }
 }
 
@@ -2581,13 +2630,14 @@ out_char(unsigned c)
 /*
  * Output "c" like out_char(), but don't flush when p_wd is set.
  */
-    static void
-out_char_nf(unsigned c)
+    static int
+out_char_nf(int c)
 {
-    out_buf[out_pos++] = c;
+    out_buf[out_pos++] = (unsigned)c;
 
     if (out_pos >= OUT_SIZE)
 	out_flush();
+    return (unsigned)c;
 }
 
 /*
@@ -2664,7 +2714,7 @@ out_str_cf(char_u *s)
 		else
 		{
 		    ++p;
-		    do_sleep(duration);
+		    do_sleep(duration, FALSE);
 		}
 # else
 		// Rely on the terminal library to sleep.
@@ -3026,6 +3076,9 @@ term_ul_rgb_color(guicolor_T rgb)
     void
 term_settitle(char_u *title)
 {
+#ifdef FEAT_JOB_CHANNEL
+    ch_log_output = TRUE;
+#endif
     // t_ts takes one argument: column in status line
     OUT_STR(tgoto((char *)T_TS, 0, 0));	// set title start
     out_str_nf(title);
@@ -3394,9 +3447,10 @@ set_shellsize(int width, int height, int mustset)
 	return;
 
     // curwin->w_buffer can be NULL when we are closing a window and the
-    // buffer has already been closed and removing a scrollbar causes a resize
-    // event. Don't resize then, it will happen after entering another buffer.
-    if (curwin->w_buffer == NULL)
+    // buffer (or window) has already been closed and removing a scrollbar
+    // causes a resize event. Don't resize then, it will happen after entering
+    // another buffer.
+    if (curwin->w_buffer == NULL || curwin->w_lines == NULL)
 	return;
 
     ++busy;
@@ -3524,6 +3578,9 @@ settmode(tmode_T tmode)
 	    if (termcap_active && tmode != TMODE_SLEEP
 						   && cur_tmode != TMODE_SLEEP)
 	    {
+#ifdef FEAT_JOB_CHANNEL
+		ch_log_output = TRUE;
+#endif
 		if (tmode != TMODE_RAW)
 		{
 		    out_str(T_BD);	// disable bracketed paste mode
@@ -3554,10 +3611,20 @@ starttermcap(void)
 {
     if (full_screen && !termcap_active)
     {
+#ifdef FEAT_JOB_CHANNEL
+	ch_log_output = TRUE;
+#endif
 	out_str(T_TI);			// start termcap mode
 	out_str(T_CTI);			// start "raw" mode
 	out_str(T_KS);			// start "keypad transmit" mode
 	out_str(T_BE);			// enable bracketed paste mode
+
+#if defined(UNIX) || defined(VMS)
+	// Enable xterm's focus reporting mode when 'esckeys' is set.
+	if (focus_mode && p_ek && *T_FE != NUL)
+	    out_str(T_FE);
+#endif
+
 	out_flush();
 	termcap_active = TRUE;
 	screen_start();			// don't know where cursor is now
@@ -3593,7 +3660,7 @@ stoptermcap(void)
 	    {
 # ifdef UNIX
 		// Give the terminal a chance to respond.
-		mch_delay(100L, FALSE);
+		mch_delay(100L, 0);
 # endif
 # ifdef TCIFLUSH
 		// Discard data received but not read.
@@ -3606,6 +3673,16 @@ stoptermcap(void)
 	    check_for_codes_from_term();
 	}
 #endif
+#ifdef FEAT_JOB_CHANNEL
+	ch_log_output = TRUE;
+#endif
+
+#if defined(UNIX) || defined(VMS)
+	// Disable xterm's focus reporting mode if 'esckeys' is set.
+	if (focus_mode && p_ek && *T_FD != NUL)
+	    out_str(T_FD);
+#endif
+
 	out_str(T_BD);			// disable bracketed paste mode
 	out_str(T_KE);			// stop "keypad transmit" mode
 	out_flush();
@@ -3641,6 +3718,9 @@ may_req_termresponse(void)
 	    && starting == 0
 	    && *T_CRV != NUL)
     {
+#ifdef FEAT_JOB_CHANNEL
+	ch_log_output = TRUE;
+#endif
 	LOG_TR(("Sending CRV request"));
 	out_str(T_CRV);
 	termrequest_sent(&crv_status);
@@ -3679,6 +3759,9 @@ check_terminal_behavior(void)
 	// width, that will be (1, 2).  This function has the side effect that
 	// changes cursor position, so it must be called immediately after
 	// entering termcap mode.
+#ifdef FEAT_JOB_CHANNEL
+	ch_log_output = TRUE;
+#endif
 	LOG_TR(("Sending request for ambiwidth check"));
 	// Do this in the second row.  In the first row the returned sequence
 	// may be CSI 1;2R, which is the same as <S-F3>.
@@ -3707,9 +3790,12 @@ check_terminal_behavior(void)
 	// sequence is ignored and the cursor does not move.  If the terminal
 	// handles test sequence incorrectly, a garbage string is displayed and
 	// the cursor does move.
+#ifdef FEAT_JOB_CHANNEL
+	ch_log_output = TRUE;
+#endif
 	LOG_TR(("Sending xterm compatibility test sequence."));
 	// Do this in the third row.  Second row is used by ambiguous
-	// chararacter width check.
+	// character width check.
 	term_windgoto(2, 0);
 	// send the test DCS string.
 	out_str((char_u *)"\033Pzz\033\\");
@@ -3757,6 +3843,9 @@ may_req_bg_color(void)
 	// Only request foreground if t_RF is set.
 	if (rfg_status.tr_progress == STATUS_GET && *T_RFG != NUL)
 	{
+#ifdef FEAT_JOB_CHANNEL
+	    ch_log_output = TRUE;
+#endif
 	    LOG_TR(("Sending FG request"));
 	    out_str(T_RFG);
 	    termrequest_sent(&rfg_status);
@@ -3767,6 +3856,9 @@ may_req_bg_color(void)
 	// Only request background if t_RB is set.
 	if (rbg_status.tr_progress == STATUS_GET && *T_RBG != NUL)
 	{
+#ifdef FEAT_JOB_CHANNEL
+	    ch_log_output = TRUE;
+#endif
 	    LOG_TR(("Sending BG request"));
 	    out_str(T_RBG);
 	    termrequest_sent(&rbg_status);
@@ -3830,6 +3922,9 @@ scroll_start(void)
 {
     if (*T_VS != NUL && *T_CVS != NUL)
     {
+#ifdef FEAT_JOB_CHANNEL
+	ch_log_output = TRUE;
+#endif
 	out_str(T_VS);
 	out_str(T_CVS);
 	screen_start();		// don't know where cursor is now
@@ -4186,7 +4281,12 @@ add_termcode(char_u *name, char_u *string, int flags)
     termcodes[i].modlen = 0;
     j = termcode_star(s, len);
     if (j > 0)
+    {
 	termcodes[i].modlen = len - 1 - j;
+	// For "CSI[@;X" the "@" is not included in "modlen".
+	if (termcodes[i].code[termcodes[i].modlen - 1] == '@')
+	    --termcodes[i].modlen;
+    }
     ++tc_len;
 }
 
@@ -4198,7 +4298,7 @@ add_termcode(char_u *name, char_u *string, int flags)
     static int
 termcode_star(char_u *code, int len)
 {
-    // Shortest is <M-O>*X.  With ; shortest is <CSI>1;*X
+    // Shortest is <M-O>*X.  With ; shortest is <CSI>@;*X
     if (len >= 3 && code[len - 2] == '*')
     {
 	if (len >= 5 && code[len - 3] == ';')
@@ -4418,7 +4518,8 @@ modifiers2keycode(int modifiers, int *key, char_u *string)
     if (modifiers != 0)
     {
 	// Some keys have the modifier included.  Need to handle that here to
-	// make mappings work.
+	// make mappings work.  This may result in a special key, such as
+	// K_S_TAB.
 	*key = simplify_key(*key, &modifiers);
 	if (modifiers != 0)
 	{
@@ -4486,7 +4587,7 @@ handle_u7_response(int *arg, char_u *tp UNUSED, int csi_len UNUSED)
 
 /*
  * Handle a response to T_CRV: {lead}{first}{x};{vers};{y}c
- * Xterm and alikes use '>' for {first}.
+ * Xterm and alike use '>' for {first}.
  * Rxvt sends "{lead}?1;2c".
  */
     static void
@@ -4680,6 +4781,9 @@ handle_version_response(int first, int *arg, int argc, char_u *tp)
 		&& *T_CSH != NUL
 		&& *T_CRS != NUL)
 	{
+#ifdef FEAT_JOB_CHANNEL
+	    ch_log_output = TRUE;
+#endif
 	    LOG_TR(("Sending cursor style request"));
 	    out_str(T_CRS);
 	    termrequest_sent(&rcs_status);
@@ -4694,6 +4798,9 @@ handle_version_response(int first, int *arg, int argc, char_u *tp)
 		&& term_props[TPR_CURSOR_BLINK].tpr_status == TPR_YES
 		&& *T_CRC != NUL)
 	{
+#ifdef FEAT_JOB_CHANNEL
+	    ch_log_output = TRUE;
+#endif
 	    LOG_TR(("Sending cursor blink mode request"));
 	    out_str(T_CRC);
 	    termrequest_sent(&rbm_status);
@@ -4734,19 +4841,22 @@ handle_key_with_modifier(
 
     modifiers = decode_modifiers(arg[1]);
 
+    // Some keys need adjustment when the Ctrl modifier is used.
+    key = may_adjust_key_for_ctrl(modifiers, key);
+
     // May remove the shift modifier if it's already included in the key.
     modifiers = may_remove_shift_modifier(modifiers, key);
-
-    // When used with Ctrl we always make a letter upper case,
-    // so that mapping <C-H> and <C-h> are the same.  Typing
-    // <C-S-H> also uses "H" but modifier is different.
-    if ((modifiers & MOD_MASK_CTRL) && ASCII_ISALPHA(key))
-	key = TOUPPER_ASC(key);
 
     // insert modifiers with KS_MODIFIER
     new_slen = modifiers2keycode(modifiers, &key, string);
 
-    if (has_mbyte)
+    if (IS_SPECIAL(key))
+    {
+	string[new_slen++] = K_SPECIAL;
+	string[new_slen++] = KEY2TERMCAP0(key);
+	string[new_slen++] = KEY2TERMCAP1(key);
+    }
+    else if (has_mbyte)
 	new_slen += (*mb_char2bytes)(key, string + new_slen);
     else
 	string[new_slen++] = key;
@@ -5230,6 +5340,8 @@ check_termcode(
 	else
 #endif // FEAT_GUI
 	{
+	    int  mouse_index_found = -1;
+
 	    for (idx = 0; idx < tc_len; ++idx)
 	    {
 		/*
@@ -5267,23 +5379,42 @@ check_termcode(
 			    }
 		    }
 
-		    key_name[0] = termcodes[idx].name[0];
-		    key_name[1] = termcodes[idx].name[1];
-		    break;
+		    // The mouse termcode "ESC [" is also the prefix of
+		    // "ESC [ I" (focus gained).  Only use it when there is
+		    // no other match.  Do use it when a digit is following to
+		    // avoid waiting for more bytes.
+		    if (slen == 2 && len > 2
+			    && termcodes[idx].code[0] == ESC
+			    && termcodes[idx].code[1] == '['
+			    && !isdigit(tp[2]))
+		    {
+			if (mouse_index_found < 0)
+			    mouse_index_found = idx;
+		    }
+		    else
+		    {
+			key_name[0] = termcodes[idx].name[0];
+			key_name[1] = termcodes[idx].name[1];
+			break;
+		    }
 		}
 
 		/*
 		 * Check for code with modifier, like xterm uses:
 		 * <Esc>[123;*X  (modslen == slen - 3)
+		 * <Esc>[@;*X    (matches <Esc>[X and <Esc>[1;9X )
 		 * Also <Esc>O*X and <M-O>*X (modslen == slen - 2).
 		 * When there is a modifier the * matches a number.
 		 * When there is no modifier the ;* or * is omitted.
 		 */
-		if (termcodes[idx].modlen > 0)
+		if (termcodes[idx].modlen > 0 && mouse_index_found < 0)
 		{
+		    int at_code;
+
 		    modslen = termcodes[idx].modlen;
 		    if (cpo_koffset && offset && len < modslen)
 			continue;
+		    at_code = termcodes[idx].code[modslen] == '@';
 		    if (STRNCMP(termcodes[idx].code, tp,
 				(size_t)(modslen > len ? len : modslen)) == 0)
 		    {
@@ -5293,9 +5424,14 @@ check_termcode(
 			    return -1;		// need to get more chars
 
 			if (tp[modslen] == termcodes[idx].code[slen - 1])
-			    slen = modslen + 1;	// no modifiers
+			    // no modifiers
+			    slen = modslen + 1;
 			else if (tp[modslen] != ';' && modslen == slen - 3)
-			    continue;	// no match
+			    // no match for "code;*X" with "code;"
+			    continue;
+			else if (at_code && tp[modslen] != '1')
+			    // no match for "<Esc>[@" with "<Esc>[1"
+			    continue;
 			else
 			{
 			    // Skip over the digits, the final char must
@@ -5323,6 +5459,11 @@ check_termcode(
 			break;
 		    }
 		}
+	    }
+	    if (idx == tc_len && mouse_index_found >= 0)
+	    {
+		key_name[0] = termcodes[mouse_index_found].name[0];
+		key_name[1] = termcodes[mouse_index_found].name[1];
 	    }
 	}
 
@@ -5577,6 +5718,41 @@ check_termcode(
 	}
 # endif // !USE_ON_FLY_SCROLL
 #endif // FEAT_GUI
+
+#if (defined(UNIX) || defined(VMS))
+	/*
+	 * Handle FocusIn/FocusOut event sequences reported by XTerm.
+	 * (CSI I/CSI O)
+	 */
+	if (focus_mode
+# ifdef FEAT_GUI
+		&& !gui.in_use
+# endif
+		&& key_name[0] == KS_EXTRA
+	    )
+	{
+	    if (key_name[1] == KE_FOCUSGAINED)
+	    {
+		if (!focus_state)
+		{
+		    ui_focus_change(TRUE);
+		    did_cursorhold = TRUE;
+		    focus_state = TRUE;
+		}
+		key_name[1] = (int)KE_IGNORE;
+	    }
+	    else if (key_name[1] == KE_FOCUSLOST)
+	    {
+		if (focus_state)
+		{
+		    ui_focus_change(FALSE);
+		    did_cursorhold = TRUE;
+		    focus_state = FALSE;
+		}
+		key_name[1] = (int)KE_IGNORE;
+	    }
+	}
+#endif
 
 	/*
 	 * Change <xHome> to <Home>, <xUp> to <Up>, etc.
@@ -6115,6 +6291,9 @@ req_more_codes_from_term(void)
     {
 	char *key_name = key_names[xt_index_out];
 
+#ifdef FEAT_JOB_CHANNEL
+	ch_log_output = TRUE;
+#endif
 	LOG_TR(("Requesting XT %d: %s", xt_index_out, key_name));
 	sprintf(buf, "\033P+q%02x%02x\033\\", key_name[0], key_name[1]);
 	out_str_nf((char_u *)buf);

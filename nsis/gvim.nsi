@@ -174,6 +174,7 @@ Page custom SetCustom ValidateCustom
     !include "lang\german.nsi"
     !include "lang\italian.nsi"
     !include "lang\japanese.nsi"
+    !include "lang\russian.nsi"
     !include "lang\simpchinese.nsi"
     !include "lang\tradchinese.nsi"
     !include "lang\turkish.nsi"
@@ -358,6 +359,8 @@ Section "$(str_section_exe)" id_section_exe
 
 	SetOutPath $0\colors
 	File ${VIMRT}\colors\*.*
+	SetOutPath $0\colors\tools
+	File ${VIMRT}\colors\tools\*.*
 
 	SetOutPath $0\compiler
 	File ${VIMRT}\compiler\*.*

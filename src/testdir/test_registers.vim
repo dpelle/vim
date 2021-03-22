@@ -1,6 +1,4 @@
-"
 " Tests for register operations
-"
 
 source check.vim
 source view_util.vim
@@ -276,6 +274,9 @@ func Test_get_register()
   call assert_fails('let r = getreg("=", [])', 'E745:')
   call assert_fails('let r = getreg("=", 1, [])', 'E745:')
   enew!
+
+  " Using a register in operator-pending mode should fail
+  call assert_beeps('norm! c"')
 endfunc
 
 func Test_set_register()
@@ -425,6 +426,12 @@ func Test_execute_register()
   @q
   @
   call assert_equal(3, i)
+
+  " try to execute expression register and use a backspace to cancel it
+  new
+  call feedkeys("@=\<BS>ax\<CR>y", 'xt')
+  call assert_equal(['x', 'y'], getline(1, '$'))
+  close!
 
   " cannot execute a register in operator pending mode
   call assert_beeps('normal! c@r')
@@ -688,6 +695,27 @@ func Test_ve_blockpaste()
   call assert_equal(5, col('.'))
   call assert_equal(getline(1, 2), ['TZ  QWER', 'GH  ASDF'])
   set ve&vim
+  bwipe!
+endfunc
+
+func Test_insert_small_delete()
+  new
+  call setline(1, ['foo foobar bar'])
+  call cursor(1,1)
+  exe ":norm! ciw'\<C-R>-'"
+  call assert_equal("'foo' foobar bar", getline(1))
+  exe ":norm! w.w."
+  call assert_equal("'foo' 'foobar' 'bar'", getline(1))
+  bwipe!
+endfunc
+
+" Record in insert mode using CTRL-O
+func Test_record_in_insert_mode()
+  new
+  let @r = ''
+  call setline(1, ['foo'])
+  call feedkeys("i\<C-O>qrbaz\<C-O>q", 'xt')
+  call assert_equal('baz', @r)
   bwipe!
 endfunc
 

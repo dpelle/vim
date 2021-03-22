@@ -1,6 +1,6 @@
 " Tests for window cmd (:wincmd, :split, :vsplit, :resize and etc...)
 
-so check.vim
+source check.vim
 
 func Test_window_cmd_ls0_with_split()
   set ls=0
@@ -19,6 +19,8 @@ func Test_window_cmd_ls0_with_split()
 endfunc
 
 func Test_window_cmd_cmdwin_with_vsp()
+  CheckFeature cmdwin
+
   let efmt = 'Expected 0 but got %d (in ls=%d, %s window)'
   for v in range(0, 2)
     exec "set ls=" . v
@@ -121,7 +123,7 @@ func Test_window_split_edit_alternate()
 
   " Test for failure when the alternate buffer/file no longer exists.
   edit Xfoo | %bw
-  call assert_fails(':wincmd ^', 'E23')
+  call assert_fails(':wincmd ^', 'E23:')
 
   " Test for the expected behavior when we have two named buffers.
   edit Xfoo | edit Xbar
@@ -154,9 +156,9 @@ func Test_window_split_edit_bufnr()
 
   %bwipeout
   let l:nr = bufnr('%') + 1
-  call assert_fails(':execute "normal! ' . l:nr . '\<C-W>\<C-^>"', 'E92')
-  call assert_fails(':' . l:nr . 'wincmd ^', 'E16')
-  call assert_fails(':0wincmd ^', 'E16')
+  call assert_fails(':execute "normal! ' . l:nr . '\<C-W>\<C-^>"', 'E92:')
+  call assert_fails(':' . l:nr . 'wincmd ^', 'E16:')
+  call assert_fails(':0wincmd ^', 'E16:')
 
   edit Xfoo | edit Xbar | edit Xbaz
   let l:foo_nr = bufnr('Xfoo')
@@ -565,8 +567,8 @@ endfunc
 
 func Test_access_freed_mem()
   call assert_equal(&columns, winwidth(0))
-  " This was accessing freed memory
-  au * 0 vs xxx
+  " This was accessing freed memory (but with what events?)
+  au BufEnter,BufLeave,WinEnter,WinLeave 0 vs xxx
   arg 0
   argadd
   call assert_fails("all", "E242:")
@@ -629,15 +631,28 @@ endfunc
 func Test_winrestcmd()
   2split
   3vsplit
-  let a = winrestcmd()
+  let restcmd = winrestcmd()
   call assert_equal(2, winheight(0))
   call assert_equal(3, winwidth(0))
   wincmd =
   call assert_notequal(2, winheight(0))
   call assert_notequal(3, winwidth(0))
-  exe a
+  exe restcmd
   call assert_equal(2, winheight(0))
   call assert_equal(3, winwidth(0))
+  only
+
+  wincmd v
+  wincmd s
+  wincmd v
+  redraw
+  let restcmd = winrestcmd()
+  wincmd _
+  wincmd |
+  exe restcmd
+  redraw
+  call assert_equal(restcmd, winrestcmd())
+
   only
 endfunc
 
@@ -655,9 +670,7 @@ endfunc
 
 func Test_window_prevwin()
   " Can we make this work on MS-Windows?
-  if !has('unix')
-    return
-  endif
+  CheckUnix
 
   set hidden autoread
   call writefile(['2'], 'tmp.txt')
@@ -1106,6 +1119,60 @@ func Test_wincmd_fails()
   call assert_beeps("normal \<C-W>K")
   call assert_beeps("normal \<C-W>H")
   call assert_beeps("normal \<C-W>2gt")
+endfunc
+
+func Test_window_resize()
+  " Vertical :resize (absolute, relative, min and max size).
+  vsplit
+  vert resize 8
+  call assert_equal(8, winwidth(0))
+  vert resize +2
+  call assert_equal(10, winwidth(0))
+  vert resize -2
+  call assert_equal(8, winwidth(0))
+  vert resize
+  call assert_equal(&columns - 2, winwidth(0))
+  vert resize 0
+  call assert_equal(1, winwidth(0))
+  vert resize 99999
+  call assert_equal(&columns - 2, winwidth(0))
+
+  %bwipe!
+
+  " Horizontal :resize (with absolute, relative size, min and max size).
+  split
+  resize 8
+  call assert_equal(8, winheight(0))
+  resize +2
+  call assert_equal(10, winheight(0))
+  resize -2
+  call assert_equal(8, winheight(0))
+  resize
+  call assert_equal(&lines - 4, winheight(0))
+  resize 0
+  call assert_equal(1, winheight(0))
+  resize 99999
+  call assert_equal(&lines - 4, winheight(0))
+
+  " :resize with explicit window number.
+  let other_winnr = winnr('j')
+  exe other_winnr .. 'resize 10'
+  call assert_equal(10, winheight(other_winnr))
+  call assert_equal(&lines - 10 - 3, winheight(0))
+  exe other_winnr .. 'resize +1'
+  exe other_winnr .. 'resize +1'
+  call assert_equal(12, winheight(other_winnr))
+  call assert_equal(&lines - 10 - 3 -2, winheight(0))
+  close
+
+  vsplit
+  wincmd l
+  let other_winnr = winnr('h')
+  call assert_notequal(winnr(), other_winnr)
+  exe 'vert ' .. other_winnr .. 'resize -' .. &columns
+  call assert_equal(0, winwidth(other_winnr))
+
+  %bwipe!
 endfunc
 
 " Test for adjusting the window width when a window is closed with some

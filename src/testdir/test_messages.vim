@@ -4,6 +4,7 @@ source check.vim
 source shared.vim
 source term_util.vim
 source view_util.vim
+source screendump.vim
 
 func Test_messages()
   let oldmore = &more
@@ -94,9 +95,8 @@ func Test_echoerr()
 endfunc
 
 func Test_mode_message_at_leaving_insert_by_ctrl_c()
-  if !has('terminal') || has('gui_running')
-    return
-  endif
+  CheckFeature terminal
+  CheckNotGui
 
   " Set custom statusline built by user-defined function.
   let testfile = 'Xtest.vim'
@@ -126,9 +126,8 @@ func Test_mode_message_at_leaving_insert_by_ctrl_c()
 endfunc
 
 func Test_mode_message_at_leaving_insert_with_esc_mapped()
-  if !has('terminal') || has('gui_running')
-    return
-  endif
+  CheckFeature terminal
+  CheckNotGui
 
   " Set custom statusline built by user-defined function.
   let testfile = 'Xtest.vim'
@@ -260,6 +259,17 @@ func Test_message_more()
   call term_sendkeys(buf, 'q')
   call WaitForAssert({-> assert_equal('100', term_getline(buf, 5))})
 
+  " Execute a : command from the more prompt
+  call term_sendkeys(buf, ":%p#\n")
+  call term_wait(buf)
+  call WaitForAssert({-> assert_equal('-- More --', term_getline(buf, 6))})
+  call term_sendkeys(buf, ":")
+  call term_wait(buf)
+  call WaitForAssert({-> assert_equal(':', term_getline(buf, 6))})
+  call term_sendkeys(buf, "echo 'Hello'\n")
+  call term_wait(buf)
+  call WaitForAssert({-> assert_equal('Hello ', term_getline(buf, 5))})
+
   call StopVimInTerminal(buf)
 endfunc
 
@@ -309,6 +319,22 @@ func Test_mapping_at_hit_return_prompt()
   call feedkeys("\<*C-B>", "xt")
   call assert_match('hit ctrl-b', Screenline(&lines - 1))
   nunmap <C-B>
+endfunc
+
+func Test_quit_long_message()
+  CheckScreendump
+
+  let content =<< trim END
+    echom range(9999)->join("\x01")
+  END
+  call writefile(content, 'Xtest_quit_message')
+  let buf = RunVimInTerminal('-S Xtest_quit_message', #{rows: 6})
+  call term_sendkeys(buf, "q")
+  call VerifyScreenDump(buf, 'Test_quit_long_message', {})
+
+  " clean up
+  call StopVimInTerminal(buf)
+  call delete('Xtest_quit_message')
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

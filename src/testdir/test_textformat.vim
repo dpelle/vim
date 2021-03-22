@@ -858,6 +858,21 @@ func Test_mps_latin1()
   close!
 endfunc
 
+func Test_mps_error()
+  let encoding_save = &encoding
+
+  for e in ['utf-8', 'latin1']
+    exe 'set encoding=' .. e
+
+    call assert_fails('set mps=<:', 'E474:', e)
+    call assert_fails('set mps=:>', 'E474:', e)
+    call assert_fails('set mps=<>', 'E474:', e)
+    call assert_fails('set mps=<:>_', 'E474:', e)
+  endfor
+
+  let &encoding = encoding_save
+endfunc
+
 " Test for ra on multi-byte characters
 func Test_ra_multibyte()
   new
@@ -934,6 +949,18 @@ func Test_fo_a_w()
   call assert_equal('g uu uu ', getline(1)[-8:])
   call assert_equal(['uu. foo'], getline(2, '$'))
 
+  " using backspace or "x" triggers reformat
+  call setline(1, ['1 2 3 4 5 ', '6 7 8 9'])
+  set tw=10
+  set fo=taw
+  set bs=indent,eol,start
+  exe "normal 1G4la\<BS>\<BS>\<Esc>"
+  call assert_equal(['1 2 4 5 6 ', '7 8 9'], getline(1, 2))
+  exe "normal f4xx"
+  call assert_equal(['1 2 5 6 7 ', '8 9'], getline(1, 2))
+
+  set tw=0
+  set fo&
   %bw!
 endfunc
 

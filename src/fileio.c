@@ -16,13 +16,21 @@
 #if defined(__TANDEM)
 # include <limits.h>		// for SSIZE_MAX
 #endif
-#if defined(UNIX) && defined(FEAT_EVAL)
+#if (defined(UNIX) || defined(VMS)) && defined(FEAT_EVAL)
 # include <pwd.h>
 # include <grp.h>
+#endif
+#if defined(VMS) && defined(HAVE_XOS_R_H)
+# include <x11/xos_r.h>
 #endif
 
 // Is there any system that doesn't have access()?
 #define USE_MCH_ACCESS
+
+#if defined(__hpux) && !defined(HAVE_DIRFD)
+# define dirfd(x) ((x)->__dd_fd)
+# define HAVE_DIRFD
+#endif
 
 static char_u *next_fenc(char_u **pp, int *alloced);
 #ifdef FEAT_EVAL
@@ -206,6 +214,7 @@ readfile(
     char_u	*old_b_fname;
     int		using_b_ffname;
     int		using_b_fname;
+    static char *msg_is_a_directory = N_("is a directory");
 
     au_did_filetype = FALSE; // reset before triggering any autocommands
 
@@ -305,18 +314,25 @@ readfile(
     else
 	msg_scroll = TRUE;	// don't overwrite previous file message
 
-    /*
-     * If the name ends in a path separator, we can't open it.  Check here,
-     * because reading the file may actually work, but then creating the swap
-     * file may destroy it!  Reported on MS-DOS and Win 95.
-     * If the name is too long we might crash further on, quit here.
-     */
     if (fname != NULL && *fname != NUL)
     {
-	p = fname + STRLEN(fname);
-	if (after_pathsep(fname, p) || STRLEN(fname) >= MAXPATHL)
+	size_t namelen = STRLEN(fname);
+
+	// If the name is too long we might crash further on, quit here.
+	if (namelen >= MAXPATHL)
 	{
 	    filemess(curbuf, fname, (char_u *)_("Illegal file name"), 0);
+	    msg_end();
+	    msg_scroll = msg_save;
+	    return FAIL;
+	}
+
+	// If the name ends in a path separator, we can't open it.  Check here,
+	// because reading the file may actually work, but then creating the
+	// swap file may destroy it!  Reported on MS-DOS and Win 95.
+	if (after_pathsep(fname, fname + namelen))
+	{
+	    filemess(curbuf, fname, (char_u *)_(msg_is_a_directory), 0);
 	    msg_end();
 	    msg_scroll = msg_save;
 	    return FAIL;
@@ -325,7 +341,7 @@ readfile(
 
     if (!read_stdin && !read_buffer && !read_fifo)
     {
-#ifdef UNIX
+#if defined(UNIX) || defined(VMS)
 	/*
 	 * On Unix it is possible to read a directory, so we have to
 	 * check for it before the mch_open().
@@ -344,7 +360,7 @@ readfile(
 
 	    if (S_ISDIR(perm))
 	    {
-		filemess(curbuf, fname, (char_u *)_("is a directory"), 0);
+		filemess(curbuf, fname, (char_u *)_(msg_is_a_directory), 0);
 		retval = NOTDONE;
 	    }
 	    else
@@ -402,11 +418,6 @@ readfile(
 	     * Setting the bits is done below, after creating the swap file.
 	     */
 	    swap_mode = (st.st_mode & 0644) | 0600;
-#endif
-#ifdef FEAT_CW_EDITOR
-	    // Get the FSSpec on MacOS
-	    // TODO: Update it properly when the buffer name changes
-	    (void)GetFSSpecFromPath(curbuf->b_ffname, &curbuf->b_FSSpec);
 #endif
 #ifdef VMS
 	    curbuf->b_fab_rfm = st.st_fab_rfm;
@@ -475,7 +486,7 @@ readfile(
 	perm = mch_getperm(fname);  // check if the file exists
 	if (isdir_f)
 	{
-	    filemess(curbuf, sfname, (char_u *)_("is a directory"), 0);
+	    filemess(curbuf, sfname, (char_u *)_(msg_is_a_directory), 0);
 	    curbuf->b_p_ro = TRUE;	// must use "w!" now
 	}
 	else
@@ -2272,6 +2283,7 @@ failed:
     else
     {
 	int fdflags = fcntl(fd, F_GETFD);
+
 	if (fdflags >= 0 && (fdflags & FD_CLOEXEC) == 0)
 	    (void)fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC);
     }
@@ -2493,7 +2505,7 @@ failed:
 	check_cursor_lnum();
 	beginline(BL_WHITE | BL_FIX);	    // on first non-blank
 
-	if (!cmdmod.lockmarks)
+	if ((cmdmod.cmod_flags & CMOD_LOCKMARKS) == 0)
 	{
 	    // Set '[ and '] marks to the newly read lines.
 	    curbuf->b_op_start.lnum = from + 1;
@@ -3389,7 +3401,6 @@ shorten_fnames(int force)
 
 #if (defined(FEAT_DND) && defined(FEAT_GUI_GTK)) \
 	|| defined(FEAT_GUI_MSWIN) \
-	|| defined(FEAT_GUI_MAC) \
 	|| defined(FEAT_GUI_HAIKU) \
 	|| defined(PROTO)
 /*
@@ -4201,7 +4212,7 @@ buf_check_timestamp(
 			msg_puts_attr(mesg2, HL_ATTR(HLF_W) + MSG_HIST);
 		    msg_clr_eos();
 		    (void)msg_end();
-		    if (emsg_silent == 0)
+		    if (emsg_silent == 0 && !in_assert_fails)
 		    {
 			out_flush();
 #ifdef FEAT_GUI
@@ -4615,11 +4626,13 @@ create_readdirex_item(char_u *path, char_u *name)
 	    q = (char_u*)pw->pw_name;
 	if (dict_add_string(item, "user", q) == FAIL)
 	    goto theend;
+#  if !defined(VMS) || (defined(VMS) && defined(HAVE_XOS_R_H))
 	gr = getgrgid(st.st_gid);
 	if (gr == NULL)
 	    q = (char_u*)"";
 	else
 	    q = (char_u*)gr->gr_name;
+#  endif
 	if (dict_add_string(item, "group", q) == FAIL)
 	    goto theend;
     }
@@ -4736,7 +4749,7 @@ readdir_core(
     if (!ok)
     {
 	failed = TRUE;
-	smsg(_(e_notopen), path);
+	semsg(_(e_notopen), path);
     }
     else
     {
@@ -4806,7 +4819,7 @@ readdir_core(
     if (dirp == NULL)
     {
 	failed = TRUE;
-	smsg(_(e_notopen), path);
+	semsg(_(e_notopen), path);
     }
     else
     {
@@ -5160,17 +5173,24 @@ vim_tempname(
 # ifdef MSWIN
     WCHAR	wszTempFile[_MAX_PATH + 1];
     WCHAR	buf4[4];
+    WCHAR	*chartab = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     char_u	*retval;
     char_u	*p;
+    long	i;
 
     wcscpy(itmp, L"");
     if (GetTempPathW(_MAX_PATH, wszTempFile) == 0)
     {
 	wszTempFile[0] = L'.';	// GetTempPathW() failed, use current dir
-	wszTempFile[1] = NUL;
+	wszTempFile[1] = L'\\';
+	wszTempFile[2] = NUL;
     }
     wcscpy(buf4, L"VIM");
-    buf4[2] = extra_char;   // make it "VIa", "VIb", etc.
+
+    // randomize the name to avoid collisions
+    i = mch_get_pid() + extra_char;
+    buf4[1] = chartab[i % 36];
+    buf4[2] = chartab[101 * i % 36];
     if (GetTempFileNameW(wszTempFile, buf4, 0, itmp) == 0)
 	return NULL;
     if (!keep)

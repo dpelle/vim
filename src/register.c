@@ -79,6 +79,7 @@ set_y_previous(yankreg_T *yreg)
  * Keep the last expression line here, for repeating.
  */
 static char_u	*expr_line = NULL;
+static exarg_T	*expr_eap = NULL;
 
 /*
  * Get an expression for the "\"=expr1" or "CTRL-R =expr1"
@@ -95,19 +96,22 @@ get_expr_register(void)
     if (*new_line == NUL)	// use previous line
 	vim_free(new_line);
     else
-	set_expr_line(new_line);
+	set_expr_line(new_line, NULL);
     return '=';
 }
 
 /*
  * Set the expression for the '=' register.
  * Argument must be an allocated string.
+ * "eap" may be used if the next line needs to be checked when evaluating the
+ * expression.
  */
     void
-set_expr_line(char_u *new_line)
+set_expr_line(char_u *new_line, exarg_T *eap)
 {
     vim_free(expr_line);
     expr_line = new_line;
+    expr_eap = eap;
 }
 
 /*
@@ -136,7 +140,7 @@ get_expr_line(void)
 	return expr_copy;
 
     ++nested;
-    rv = eval_to_string(expr_copy, TRUE);
+    rv = eval_to_string_eap(expr_copy, TRUE, expr_eap);
     --nested;
     vim_free(expr_copy);
     return rv;
@@ -318,8 +322,7 @@ put_register(int name, void *reg)
 #endif
 }
 
-#if (defined(FEAT_CLIPBOARD) && defined(FEAT_X11) && defined(USE_SYSTEM)) \
-	|| defined(PROTO)
+#if defined(FEAT_CLIPBOARD) || defined(PROTO)
     void
 free_register(void *reg)
 {
@@ -806,7 +809,14 @@ insert_reg(
 	{
 	    for (i = 0; i < y_current->y_size; ++i)
 	    {
-		stuffescaped(y_current->y_array[i], literally);
+		if (regname == '-')
+		{
+		    AppendCharToRedobuff(Ctrl_R);
+		    AppendCharToRedobuff(regname);
+		    do_put(regname, NULL, BACKWARD, 1L, PUT_CURSEND);
+		}
+		else
+		    stuffescaped(y_current->y_array[i], literally);
 		// Insert a newline between lines and after last line if
 		// y_type is MLINE.
 		if (y_current->y_type == MLINE || i < y_current->y_size - 1)
@@ -1358,7 +1368,7 @@ op_yank(oparg_T *oap, int deleting, int mess)
 	}
     }
 
-    if (!cmdmod.lockmarks)
+    if ((cmdmod.cmod_flags & CMOD_LOCKMARKS) == 0)
     {
 	// Set "'[" and "']" marks.
 	curbuf->b_op_start = oap->start;
@@ -1392,12 +1402,13 @@ op_yank(oparg_T *oap, int deleting, int mess)
 
 # ifdef FEAT_X11
     // If we were yanking to the '+' register, send result to selection.
-    // Also copy to the '*' register, in case auto-select is off.
+    // Also copy to the '*' register, in case auto-select is off.  But not when
+    // 'clipboard' has "unnamedplus" and not "unnamed".
     if (clip_plus.available
 	    && (curr == &(y_regs[PLUS_REGISTER])
 		|| (!deleting && oap->regname == 0
 		  && ((clip_unnamed | clip_unnamed_saved) &
-		      CLIP_UNNAMED_PLUS))))
+							  CLIP_UNNAMED_PLUS))))
     {
 	if (curr != &(y_regs[PLUS_REGISTER]))
 	    // Copy the text from register 0 to the clipboard register.
@@ -1405,8 +1416,11 @@ op_yank(oparg_T *oap, int deleting, int mess)
 
 	clip_own_selection(&clip_plus);
 	clip_gen_set_selection(&clip_plus);
-	if (!clip_isautosel_star() && !clip_isautosel_plus()
-		&& !did_star && curr == &(y_regs[PLUS_REGISTER]))
+	if (!clip_isautosel_star()
+		&& !clip_isautosel_plus()
+		&& !((clip_unnamed | clip_unnamed_saved) == CLIP_UNNAMED_PLUS)
+		&& !did_star
+		&& curr == &(y_regs[PLUS_REGISTER]))
 	{
 	    copy_yank_reg(&(y_regs[STAR_REGISTER]));
 	    clip_own_selection(&clip_star);
@@ -1487,6 +1501,7 @@ copy_yank_reg(yankreg_T *reg)
     void
 do_put(
     int		regname,
+    char_u	*expr_result,	// result for regname "=" when compiled
     int		dir,		// BACKWARD for 'P', FORWARD for 'p'
     long	count,
     int		flags)
@@ -1551,11 +1566,12 @@ do_put(
 
     // For special registers '%' (file name), '#' (alternate file name) and
     // ':' (last command line), etc. we have to create a fake yank register.
-    if (get_spec_reg(regname, &insert_string, &allocated, TRUE))
-    {
-	if (insert_string == NULL)
-	    return;
-    }
+    // For compiled code "expr_result" holds the expression result.
+    if (regname == '=' && expr_result != NULL)
+	insert_string = expr_result;
+    else if (get_spec_reg(regname, &insert_string, &allocated, TRUE)
+		&& insert_string == NULL)
+	return;
 
     // Autocommands may be executed when saving lines for undo.  This might
     // make "y_array" invalid, so we start undo now to avoid that.
@@ -1937,16 +1953,29 @@ do_put(
 	    --lnum;
 	new_cursor = curwin->w_cursor;
 
-	// simple case: insert into current line
+	// simple case: insert into one line at a time
 	if (y_type == MCHAR && y_size == 1)
 	{
-	    linenr_T end_lnum = 0; // init for gcc
+	    linenr_T	end_lnum = 0; // init for gcc
+	    linenr_T	start_lnum = lnum;
 
 	    if (VIsual_active)
 	    {
 		end_lnum = curbuf->b_visual.vi_end.lnum;
 		if (end_lnum < curbuf->b_visual.vi_start.lnum)
 		    end_lnum = curbuf->b_visual.vi_start.lnum;
+		if (end_lnum > start_lnum)
+		{
+		    pos_T   pos;
+
+		    // "col" is valid for the first line, in following lines
+		    // the virtual column needs to be used.  Matters for
+		    // multi-byte characters.
+		    pos.lnum = lnum;
+		    pos.col = col;
+		    pos.coladd = 0;
+		    getvcol(curwin, &pos, NULL, &vcol, NULL);
+		}
 	    }
 
 	    do {
@@ -1954,6 +1983,16 @@ do_put(
 		if (totlen > 0)
 		{
 		    oldp = ml_get(lnum);
+		    if (lnum > start_lnum)
+		    {
+			pos_T   pos;
+
+			pos.lnum = lnum;
+			if (getvpos(&pos, vcol) == OK)
+			    col = pos.col;
+			else
+			    col = MAXCOL;
+		    }
 		    if (VIsual_active && col > (int)STRLEN(oldp))
 		    {
 			lnum++;
@@ -2145,7 +2184,7 @@ error:
     curwin->w_set_curswant = TRUE;
 
 end:
-    if (cmdmod.lockmarks)
+    if (cmdmod.cmod_flags & CMOD_LOCKMARKS)
     {
 	curbuf->b_op_start = orig_start;
 	curbuf->b_op_end = orig_end;
@@ -2749,7 +2788,7 @@ write_reg_contents_ex(
 	    vim_free(p);
 	    p = s;
 	}
-	set_expr_line(p);
+	set_expr_line(p, NULL);
 	return;
     }
 

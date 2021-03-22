@@ -248,6 +248,13 @@ trunc_string(
     int		i;
     int		n;
 
+    if (*s == NUL)
+    {
+	if (buflen > 0)
+	    *buf = NUL;
+	return;
+    }
+
     if (room_in < 3)
 	room = 0;
     half = room / 2;
@@ -461,13 +468,18 @@ get_emsg_source(void)
 
     if (SOURCING_NAME != NULL && other_sourcing_name())
     {
-	char_u	    *sname = estack_sfile();
+	char_u	    *sname = estack_sfile(ESTACK_NONE);
 	char_u	    *tofree = sname;
 
 	if (sname == NULL)
 	    sname = SOURCING_NAME;
 
-	p = (char_u *)_("Error detected while processing %s:");
+#ifdef FEAT_EVAL
+	if (estack_compiling)
+	    p = (char_u *)_("Error detected while compiling %s:");
+	else
+#endif
+	    p = (char_u *)_("Error detected while processing %s:");
 	Buf = alloc(STRLEN(sname) + STRLEN(p));
 	if (Buf != NULL)
 	    sprintf((char *)Buf, (char *)p, sname);
@@ -654,8 +666,14 @@ emsg_core(char_u *s)
 	    return TRUE;
 	}
 
-	if (emsg_assert_fails_used && emsg_assert_fails_msg == NULL)
+	if (in_assert_fails && emsg_assert_fails_msg == NULL)
+	{
 	    emsg_assert_fails_msg = vim_strsave(s);
+	    emsg_assert_fails_lnum = SOURCING_LNUM;
+	    vim_free(emsg_assert_fails_context);
+	    emsg_assert_fails_context = vim_strsave(
+			 SOURCING_NAME == NULL ? (char_u *)"" : SOURCING_NAME);
+	}
 
 	// set "v:errmsg", also when using ":silent! cmd"
 	set_vim_var_string(VV_ERRMSG, s, -1);
@@ -686,6 +704,12 @@ emsg_core(char_u *s)
 		}
 		redir_write(s, -1);
 	    }
+#ifdef FEAT_EVAL
+	    // Only increment did_emsg_def when :silent! wasn't used inside the
+	    // :def function.
+	    if (emsg_silent == emsg_silent_def)
+		++did_emsg_def;
+#endif
 #ifdef FEAT_JOB_CHANNEL
 	    ch_log(NULL, "ERROR silent: %s", (char *)s);
 #endif
@@ -1540,6 +1564,10 @@ msg_outtrans_len_attr(char_u *msgstr, int len, int attr)
     char_u	*s;
     int		mb_l;
     int		c;
+    int		save_got_int = got_int;
+
+    // Only quit when got_int was set in here.
+    got_int = FALSE;
 
     // if MSG_HIST flag set, add message to history
     if (attr & MSG_HIST)
@@ -1557,7 +1585,7 @@ msg_outtrans_len_attr(char_u *msgstr, int len, int attr)
      * Go over the string.  Special characters are translated and printed.
      * Normal characters are printed several at a time.
      */
-    while (--len >= 0)
+    while (--len >= 0 && !got_int)
     {
 	if (enc_utf8)
 	    // Don't include composing chars after the end.
@@ -1607,9 +1635,11 @@ msg_outtrans_len_attr(char_u *msgstr, int len, int attr)
 	}
     }
 
-    if (str > plain_start)
+    if (str > plain_start && !got_int)
 	// print the printable chars at the end
 	msg_puts_attr_len((char *)plain_start, (int)(str - plain_start), attr);
+
+    got_int |= save_got_int;
 
     return retval;
 }
@@ -1808,23 +1838,37 @@ msg_prt_line(char_u *s, int list)
     int		n;
     int		attr = 0;
     char_u	*trail = NULL;
+    char_u	*lead = NULL;
     int		l;
     char_u	buf[MB_MAXBYTES + 1];
 
     if (curwin->w_p_list)
 	list = TRUE;
 
-    // find start of trailing whitespace
-    if (list && lcs_trail)
+    if (list)
     {
-	trail = s + STRLEN(s);
-	while (trail > s && VIM_ISWHITE(trail[-1]))
-	    --trail;
+	// find start of trailing whitespace
+	if (curwin->w_lcs_chars.trail)
+	{
+	    trail = s + STRLEN(s);
+	    while (trail > s && VIM_ISWHITE(trail[-1]))
+		--trail;
+	}
+	// find end of leading whitespace
+	if (curwin->w_lcs_chars.lead)
+	{
+	    lead = s;
+	    while (VIM_ISWHITE(lead[0]))
+		lead++;
+	    // in a line full of spaces all of them are treated as trailing
+	    if (*lead == NUL)
+		lead = NULL;
+	}
     }
 
     // output a space for an empty line, otherwise the line will be
     // overwritten
-    if (*s == NUL && !(list && lcs_eol != NUL))
+    if (*s == NUL && !(list && curwin->w_lcs_chars.eol != NUL))
 	msg_putchar(' ');
 
     while (!got_int)
@@ -1842,11 +1886,15 @@ msg_prt_line(char_u *s, int list)
 	else if (has_mbyte && (l = (*mb_ptr2len)(s)) > 1)
 	{
 	    col += (*mb_ptr2cells)(s);
-	    if (lcs_nbsp != NUL && list
+	    if (l >= MB_MAXBYTES)
+	    {
+		STRCPY(buf, "?");
+	    }
+	    else if (curwin->w_lcs_chars.nbsp != NUL && list
 		    && (mb_ptr2char(s) == 160
 			|| mb_ptr2char(s) == 0x202f))
 	    {
-		mb_char2bytes(lcs_nbsp, buf);
+		mb_char2bytes(curwin->w_lcs_chars.nbsp, buf);
 		buf[(*mb_ptr2len)(buf)] = NUL;
 	    }
 	    else
@@ -1862,7 +1910,7 @@ msg_prt_line(char_u *s, int list)
 	{
 	    attr = 0;
 	    c = *s++;
-	    if (c == TAB && (!list || lcs_tab1))
+	    if (c == TAB && (!list || curwin->w_lcs_chars.tab1))
 	    {
 		// tab amount depends on current column
 #ifdef FEAT_VARTABS
@@ -1879,24 +1927,26 @@ msg_prt_line(char_u *s, int list)
 		}
 		else
 		{
-		    c = (n_extra == 0 && lcs_tab3) ? lcs_tab3 : lcs_tab1;
-		    c_extra = lcs_tab2;
-		    c_final = lcs_tab3;
+		    c = (n_extra == 0 && curwin->w_lcs_chars.tab3)
+						? curwin->w_lcs_chars.tab3
+						: curwin->w_lcs_chars.tab1;
+		    c_extra = curwin->w_lcs_chars.tab2;
+		    c_final = curwin->w_lcs_chars.tab3;
 		    attr = HL_ATTR(HLF_8);
 		}
 	    }
-	    else if (c == 160 && list && lcs_nbsp != NUL)
+	    else if (c == 160 && list && curwin->w_lcs_chars.nbsp != NUL)
 	    {
-		c = lcs_nbsp;
+		c = curwin->w_lcs_chars.nbsp;
 		attr = HL_ATTR(HLF_8);
 	    }
-	    else if (c == NUL && list && lcs_eol != NUL)
+	    else if (c == NUL && list && curwin->w_lcs_chars.eol != NUL)
 	    {
 		p_extra = (char_u *)"";
 		c_extra = NUL;
 		c_final = NUL;
 		n_extra = 1;
-		c = lcs_eol;
+		c = curwin->w_lcs_chars.eol;
 		attr = HL_ATTR(HLF_AT);
 		--s;
 	    }
@@ -1911,14 +1961,19 @@ msg_prt_line(char_u *s, int list)
 		// the same in plain text.
 		attr = HL_ATTR(HLF_8);
 	    }
-	    else if (c == ' ' && trail != NULL && s > trail)
+	    else if (c == ' ' && lead != NULL && s <= lead)
 	    {
-		c = lcs_trail;
+		c = curwin->w_lcs_chars.lead;
 		attr = HL_ATTR(HLF_8);
 	    }
-	    else if (c == ' ' && list && lcs_space != NUL)
+	    else if (c == ' ' && trail != NULL && s > trail)
 	    {
-		c = lcs_space;
+		c = curwin->w_lcs_chars.trail;
+		attr = HL_ATTR(HLF_8);
+	    }
+	    else if (c == ' ' && list && curwin->w_lcs_chars.space != NUL)
+	    {
+		c = curwin->w_lcs_chars.space;
 		attr = HL_ATTR(HLF_8);
 	    }
 	}
@@ -2302,10 +2357,10 @@ message_filtered(char_u *msg)
 {
     int match;
 
-    if (cmdmod.filter_regmatch.regprog == NULL)
+    if (cmdmod.cmod_filter_regmatch.regprog == NULL)
 	return FALSE;
-    match = vim_regexec(&cmdmod.filter_regmatch, msg, (colnr_T)0);
-    return cmdmod.filter_force ? match : !match;
+    match = vim_regexec(&cmdmod.cmod_filter_regmatch, msg, (colnr_T)0);
+    return cmdmod.cmod_filter_force ? match : !match;
 }
 
 /*

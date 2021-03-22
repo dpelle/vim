@@ -403,7 +403,7 @@ plines_win_nofold(win_T *wp, linenr_T lnum)
      * If list mode is on, then the '$' at the end of the line may take up one
      * extra column.
      */
-    if (wp->w_p_list && lcs_eol != NUL)
+    if (wp->w_p_list && wp->w_lcs_chars.eol != NUL)
 	col += 1;
 
     /*
@@ -460,7 +460,8 @@ plines_win_col(win_T *wp, linenr_T lnum, long column)
      * from one screen line to the next (when 'columns' is not a multiple of
      * 'ts') -- webb.
      */
-    if (*s == TAB && (State & NORMAL) && (!wp->w_p_list || lcs_tab1))
+    if (*s == TAB && (State & NORMAL) && (!wp->w_p_list ||
+							wp->w_lcs_chars.tab1))
 	col += win_lbr_chartabsize(wp, line, s, (colnr_T)col, NULL) - 1;
 
     /*
@@ -1063,7 +1064,7 @@ vim_beep(
     called_vim_beep = TRUE;
 #endif
 
-    if (emsg_silent == 0)
+    if (emsg_silent == 0 && !in_assert_fails)
     {
 	if (!((bo_flags & val) || (bo_flags & BO_ALL)))
 	{
@@ -1329,7 +1330,7 @@ expand_env_esc(
 
 	    var = src;
 	    src += 2;
-	    (void)skip_expr(&src);
+	    (void)skip_expr(&src, NULL);
 	    if (*src == '`')
 		++src;
 	    len = src - var;
@@ -2568,6 +2569,7 @@ goto_im(void)
  * But don't allow a space in the path, so that this works:
  *   "/usr/bin/csh --rcfile ~/.cshrc"
  * But don't do that for Windows, it's common to have a space in the path.
+ * Returns NULL when out of memory.
  */
     char_u *
 get_isolated_shell_name(void)

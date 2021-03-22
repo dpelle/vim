@@ -1,7 +1,7 @@
 " Vim support file to detect file types
 "
 " Maintainer:	Bram Moolenaar <Bram@vim.org>
-" Last Change:	2020 Jun 25
+" Last Change:	2021 Mar 12
 
 " Listen very carefully, I will say this only once
 if exists("did_load_filetypes")
@@ -88,6 +88,9 @@ endif
 " AHDL
 au BufNewFile,BufRead *.tdf			setf ahdl
 
+" AIDL
+au BufNewFile,BufRead *.aidl			setf aidl
+
 " AMPL
 au BufNewFile,BufRead *.run			setf ampl
 
@@ -165,6 +168,9 @@ au BufNewFile,BufRead *.mar			setf vmasm
 " Atlas
 au BufNewFile,BufRead *.atl,*.as		setf atlas
 
+" Atom is based on XML
+au BufNewFile,BufRead *.atom			setf xml
+
 " Autoit v3
 au BufNewFile,BufRead *.au3			setf autoit
 
@@ -181,7 +187,7 @@ au BufNewFile,BufRead *.at			setf m4
 au BufNewFile,BufRead *.ave			setf ave
 
 " Awk
-au BufNewFile,BufRead *.awk			setf awk
+au BufNewFile,BufRead *.awk,*.gawk		setf awk
 
 " B
 au BufNewFile,BufRead *.mch,*.ref,*.imp		setf b
@@ -213,6 +219,9 @@ au BufNewFile,BufRead *.bc			setf bc
 " BDF font
 au BufNewFile,BufRead *.bdf			setf bdf
 
+" Beancount
+au BufNewFile,BufRead *.beancount		setf beancount
+
 " BibTeX bibliography database file
 au BufNewFile,BufRead *.bib			setf bib
 
@@ -237,10 +246,10 @@ au BufNewFile,BufRead */etc/blkid.tab,*/etc/blkid.tab.old   setf xml
 au BufNewFile,BufRead *bsd,*.bsdl		setf bsdl
 
 " Bazel (http://bazel.io)
-autocmd BufRead,BufNewFile *.bzl,WORKSPACE,BUILD.bazel	setf bzl
+autocmd BufRead,BufNewFile *.bzl,*.bazel,WORKSPACE	setf bzl
 if has("fname_case")
   " There is another check for BUILD further below.
-  autocmd BufRead,BufNewFile BUILD		setf bzl
+  autocmd BufRead,BufNewFile *.BUILD,BUILD		setf bzl
 endif
 
 " C or lpc
@@ -314,7 +323,7 @@ au BufNewFile,BufRead *.css			setf css
 au BufNewFile,BufRead *.con			setf cterm
 
 " Changelog
-au BufNewFile,BufRead changelog.Debian,changelog.dch,NEWS.Debian,NEWS.dch
+au BufNewFile,BufRead changelog.Debian,changelog.dch,NEWS.Debian,NEWS.dch,*/debian/changelog
 					\	setf debchangelog
 
 au BufNewFile,BufRead [cC]hange[lL]og
@@ -496,6 +505,9 @@ au BufNewFile,BufRead *.com			call dist#ft#BindzoneCheck('dcl')
 " DOT
 au BufNewFile,BufRead *.dot,*.gv		setf dot
 
+" Dune
+au BufNewFile,BufRead jbuild,dune,dune-project,dune-workspace setf dune
+
 " Dylan - lid files
 au BufNewFile,BufRead *.lid			setf dylanlid
 
@@ -583,6 +595,9 @@ au BufNewFile,BufRead *.fan,*.fwt		setf fan
 " Factor
 au BufNewFile,BufRead *.factor			setf factor
 
+" Fennel
+autocmd BufRead,BufNewFile *.fnl 		setf fennel
+
 " Fetchmail RC file
 au BufNewFile,BufRead .fetchmailrc		setf fetchmail
 
@@ -623,6 +638,9 @@ au BufNewFile,BufRead *.mo,*.gdmo		setf gdmo
 
 " Gedcom
 au BufNewFile,BufRead *.ged,lltxxxxx.txt	setf gedcom
+
+" Gift (Moodle)
+autocmd BufRead,BufNewFile *.gift 		setf gift
 
 " Git
 au BufNewFile,BufRead COMMIT_EDITMSG,MERGE_MSG,TAG_EDITMSG	setf gitcommit
@@ -693,12 +711,15 @@ au BufNewFile,BufRead .gtkrc,gtkrc		setf gtkrc
 au BufNewFile,BufRead *.haml			setf haml
 
 " Hamster Classic | Playground files
-au BufNewFile,BufRead *.hsc,*.hsm		setf hamster
+au BufNewFile,BufRead *.hsm	  		setf hamster
 
 " Haskell
-au BufNewFile,BufRead *.hs,*.hs-boot		setf haskell
+au BufNewFile,BufRead *.hs,*.hsc,*.hs-boot	setf haskell
 au BufNewFile,BufRead *.lhs			setf lhaskell
 au BufNewFile,BufRead *.chs			setf chaskell
+au BufNewFile,BufRead cabal.project		setf cabalproject
+au BufNewFile,BufRead $HOME/.cabal/config	setf cabalconfig
+au BufNewFile,BufRead cabal.config		setf cabalconfig
 
 " Haste
 au BufNewFile,BufRead *.ht			setf haste
@@ -1090,6 +1111,9 @@ au BufNewFile,BufRead .netrc			setf netrc
 " Ninja file
 au BufNewFile,BufRead *.ninja			setf ninja
 
+" NPM RC file
+au BufNewFile,BufRead npmrc,.npmrc		setf dosini
+
 " Novell netware batch files
 au BufNewFile,BufRead *.ncf			setf ncf
 
@@ -1113,14 +1137,17 @@ au BufNewFile,BufRead *.nse			setf lua
 " NSIS
 au BufNewFile,BufRead *.nsi,*.nsh		setf nsis
 
-" OCAML
-au BufNewFile,BufRead *.ml,*.mli,*.mll,*.mly,.ocamlinit	setf ocaml
+" OCaml
+au BufNewFile,BufRead *.ml,*.mli,*.mll,*.mly,.ocamlinit,*.mlt,*.mlp,*.mlip,*.mli.cppo,*.ml.cppo setf ocaml
 
 " Occam
 au BufNewFile,BufRead *.occ			setf occam
 
 " Omnimark
 au BufNewFile,BufRead *.xom,*.xin		setf omnimark
+
+" OPAM
+au BufNewFile,BufRead opam,*.opam,*.opam.template setf opam
 
 " OpenROAD
 au BufNewFile,BufRead *.or			setf openroad
@@ -1155,11 +1182,14 @@ au BufNewFile,BufRead *.papp,*.pxml,*.pxsl	setf papp
 " Password file
 au BufNewFile,BufRead */etc/passwd,*/etc/passwd-,*/etc/passwd.edit,*/etc/shadow,*/etc/shadow-,*/etc/shadow.edit,*/var/backups/passwd.bak,*/var/backups/shadow.bak setf passwd
 
-" Pascal (also *.p)
+" Pascal (also *.p, *.pp, *.inc)
 au BufNewFile,BufRead *.pas			setf pascal
 
-" Delphi project file
-au BufNewFile,BufRead *.dpr			setf pascal
+" Pascal or Puppet manifest
+au BufNewFile,BufRead *.pp			call dist#ft#FTpp()
+
+" Delphi or Lazarus program file
+au BufNewFile,BufRead *.dpr,*.lpr		setf pascal
 
 " PDF
 au BufNewFile,BufRead *.pdf			setf pdf
@@ -1195,6 +1225,9 @@ au BufNewFile,BufRead *.pod6			setf pod6
 " Also Phtml (was used for PHP 2 in the past)
 " Also .ctp for Cake template file
 au BufNewFile,BufRead *.php,*.php\d,*.phtml,*.ctp	setf php
+
+" PHP config
+au BufNewFile,BufRead php.ini-*			setf dosini
 
 " Pike and Cmod
 au BufNewFile,BufRead *.pike,*.pmod		setf pike
@@ -1243,7 +1276,7 @@ au BufNewFile,BufRead *.pov			setf pov
 " Povray configuration
 au BufNewFile,BufRead .povrayrc			setf povini
 
-" Povray, PHP or assembly
+" Povray, Pascal, PHP or assembly
 au BufNewFile,BufRead *.inc			call dist#ft#FTinc()
 
 " Printcap and Termcap
@@ -1252,12 +1285,18 @@ au BufNewFile,BufRead *printcap
 au BufNewFile,BufRead *termcap
 	\ let b:ptcap_type = "term" | setf ptcap
 
-" PCCTS / ANTRL
-"au BufNewFile,BufRead *.g			setf antrl
+" PCCTS / ANTLR
+"au BufNewFile,BufRead *.g			setf antlr
 au BufNewFile,BufRead *.g			setf pccts
 
 " PPWizard
 au BufNewFile,BufRead *.it,*.ih			setf ppwiz
+
+" Puppet
+au BufNewFile,BufRead Puppetfile		setf ruby
+
+" Embedded Puppet
+au BufNewFile,BufRead *.epp			setf epuppet
 
 " Obj 3D file format
 " TODO: is there a way to avoid MS-Windows Object files?
@@ -1296,6 +1335,10 @@ au BufNewFile,BufRead *.pml			setf promela
 
 " Google protocol buffers
 au BufNewFile,BufRead *.proto			setf proto
+au BufNewFile,BufRead *.pbtxt			setf pbtxt
+
+" Poke
+au BufNewFile,BufRead *.pk      		setf poke
 
 " Protocols
 au BufNewFile,BufRead */etc/protocols		setf protocols
@@ -1333,13 +1376,6 @@ au BufNewFile,BufRead *.rego			setf rego
 " Rexx
 au BufNewFile,BufRead *.rex,*.orx,*.rxo,*.rxj,*.jrexx,*.rexxj,*.rexx,*.testGroup,*.testUnit	setf rexx
 
-" R (Splus)
-if has("fname_case")
-  au BufNewFile,BufRead *.s,*.S			setf r
-else
-  au BufNewFile,BufRead *.s			setf r
-endif
-
 " R Help file
 if has("fname_case")
   au BufNewFile,BufRead *.rd,*.Rd		setf rhelp
@@ -1360,6 +1396,9 @@ if has("fname_case")
 else
   au BufNewFile,BufRead *.rmd,*.smd			setf rmd
 endif
+
+" RSS looks like XML
+au BufNewFile,BufRead *.rss				setf xml
 
 " R reStructuredText file
 if has("fname_case")
@@ -1407,8 +1446,8 @@ au BufNewFile,BufRead *.rb,*.rbw		setf ruby
 " RubyGems
 au BufNewFile,BufRead *.gemspec			setf ruby
 
-" Rust
-au BufNewFile,BufRead *.rs			setf rust
+" RBS (Ruby Signature)
+au BufNewFile,BufRead *.rbs			setf rbs
 
 " Rackup
 au BufNewFile,BufRead *.ru			setf ruby
@@ -1421,6 +1460,9 @@ au BufNewFile,BufRead *.builder,*.rxml,*.rjs	setf ruby
 
 " Rantfile and Rakefile is like Ruby
 au BufNewFile,BufRead [rR]antfile,*.rant,[rR]akefile,*.rake	setf ruby
+
+" Rust
+au BufNewFile,BufRead *.rs			setf rust
 
 " S-lang (or shader language, or SmallLisp)
 au BufNewFile,BufRead *.sl			setf slang
@@ -1457,6 +1499,9 @@ au BufNewFile,BufRead *.sdl,*.pr		setf sdl
 
 " sed
 au BufNewFile,BufRead *.sed			setf sed
+
+" svelte
+au BufNewFile,BufRead *.svelte			setf svelte
 
 " Sieve (RFC 3028, 5228)
 au BufNewFile,BufRead *.siv,*.sieve		setf sieve
@@ -1504,9 +1549,10 @@ au BufNewFile,BufRead *.decl,*.dcl,*.dec
 au BufNewFile,BufRead catalog			setf catalog
 
 " Shell scripts (sh, ksh, bash, bash2, csh); Allow .profile_foo etc.
-" Gentoo ebuilds and Arch Linux PKGBUILDs are actually bash scripts
+" Gentoo ebuilds, Arch Linux PKGBUILDs and Alpine Linux APKBUILDs are actually
+" bash scripts.
 " NOTE: Patterns ending in a star are further down, these have lower priority.
-au BufNewFile,BufRead .bashrc,bashrc,bash.bashrc,.bash[_-]profile,.bash[_-]logout,.bash[_-]aliases,bash-fc[-.],*.bash,*/{,.}bash[_-]completion{,.d,.sh}{,/*},*.ebuild,*.eclass,PKGBUILD call dist#ft#SetFileTypeSH("bash")
+au BufNewFile,BufRead .bashrc,bashrc,bash.bashrc,.bash[_-]profile,.bash[_-]logout,.bash[_-]aliases,bash-fc[-.],*.bash,*/{,.}bash[_-]completion{,.d,.sh}{,/*},*.ebuild,*.eclass,PKGBUILD,APKBUILD call dist#ft#SetFileTypeSH("bash")
 au BufNewFile,BufRead .kshrc,*.ksh call dist#ft#SetFileTypeSH("ksh")
 au BufNewFile,BufRead */etc/profile,.profile,*.sh,*.env call dist#ft#SetFileTypeSH(getline(1))
 
@@ -1536,6 +1582,9 @@ au BufNewFile,BufRead *.scm,*.ss,*.rkt		setf scheme
 
 " Screen RC
 au BufNewFile,BufRead .screenrc,screenrc	setf screen
+
+" Sexplib
+au BufNewFile,BufRead *.sexp setf sexplib
 
 " Simula
 au BufNewFile,BufRead *.sim			setf simula
@@ -1596,6 +1645,9 @@ au BufNewFile,BufRead *.mib,*.my		setf mib
 " Snort Configuration
 au BufNewFile,BufRead *.hog,snort.conf,vision.conf	setf hog
 au BufNewFile,BufRead *.rules			call dist#ft#FTRules()
+
+" SPARQL queries
+au BufNewFile,BufRead *.rq,*.sparql		setf sparql
 
 " Spec (Linux RPM)
 au BufNewFile,BufRead *.spec			setf spec
@@ -1707,8 +1759,13 @@ au BufNewFile,BufRead *.tli			setf tli
 " Telix Salt
 au BufNewFile,BufRead *.slt			setf tsalt
 
-" Tera Term Language
-au BufRead,BufNewFile *.ttl			setf teraterm
+" Tera Term Language or Turtle
+au BufRead,BufNewFile *.ttl
+	\ if getline(1) =~ '^@\?\(prefix\|base\)' |
+	\   setf turtle |
+	\ else |
+	\   setf teraterm |
+	\ endif
 
 " Terminfo
 au BufNewFile,BufRead *.ti			setf terminfo
@@ -1718,7 +1775,7 @@ au BufNewFile,BufRead *.latex,*.sty,*.dtx,*.ltx,*.bbl	setf tex
 au BufNewFile,BufRead *.tex			call dist#ft#FTtex()
 
 " ConTeXt
-au BufNewFile,BufRead *.mkii,*.mkiv,*.mkvi   setf context
+au BufNewFile,BufRead *.mkii,*.mkiv,*.mkvi,*.mkxl,*.mklx   setf context
 
 " Texinfo
 au BufNewFile,BufRead *.texinfo,*.texi,*.txi	setf texinfo
@@ -1727,13 +1784,16 @@ au BufNewFile,BufRead *.texinfo,*.texi,*.txi	setf texinfo
 au BufNewFile,BufRead texmf.cnf			setf texmf
 
 " Tidy config
-au BufNewFile,BufRead .tidyrc,tidyrc		setf tidy
+au BufNewFile,BufRead .tidyrc,tidyrc,tidy.conf	setf tidy
 
 " TF mud client
 au BufNewFile,BufRead *.tf,.tfrc,tfrc		setf tf
 
 " tmux configuration
 au BufNewFile,BufRead {.,}tmux*.conf		setf tmux
+
+" TOML
+au BufNewFile,BufRead *.toml			setf toml
 
 " TPP - Text Presentation Program
 au BufNewFile,BufReadPost *.tpp			setf tpp
@@ -1756,8 +1816,13 @@ au BufNewFile,BufReadPost *.tsscl		setf tsscl
 " TWIG files
 au BufNewFile,BufReadPost *.twig		setf twig
 
-" Typescript
-au BufNewFile,BufReadPost *.ts			setf typescript
+" Typescript or Qt translation file (which is XML)
+au BufNewFile,BufReadPost *.ts
+	\ if getline(1) =~ '<?xml' |
+	\   setf xml |
+	\ else |
+	\   setf typescript |
+	\ endif
 
 " TypeScript with React
 au BufNewFile,BufRead *.tsx			setf typescriptreact
@@ -2033,11 +2098,13 @@ au BufNewFile,BufRead bzr_log.*			setf bzr
 
 " Bazel build file
 if !has("fname_case")
-  au BufNewFile,BufRead BUILD			setf bzl
+  au BufNewFile,BufRead *.BUILD,BUILD		setf bzl
 endif
 
 " BIND zone
 au BufNewFile,BufRead */named/db.*,*/bind/db.*	call s:StarSetf('bindzone')
+
+au BufNewFile,BufRead cabal.project.*		call s:StarSetf('cabalproject')
 
 " Calendar
 au BufNewFile,BufRead */.calendar/*,
@@ -2161,7 +2228,7 @@ au BufNewFile,BufRead .reminders*		call s:StarSetf('remind')
 au BufNewFile,BufRead sgml.catalog*		call s:StarSetf('catalog')
 
 " Shell scripts ending in a star
-au BufNewFile,BufRead .bashrc*,.bash[_-]profile*,.bash[_-]logout*,.bash[_-]aliases*,bash-fc[-.]*,,PKGBUILD* call dist#ft#SetFileTypeSH("bash")
+au BufNewFile,BufRead .bashrc*,.bash[_-]profile*,.bash[_-]logout*,.bash[_-]aliases*,bash-fc[-.]*,PKGBUILD*,APKBUILD* call dist#ft#SetFileTypeSH("bash")
 au BufNewFile,BufRead .kshrc* call dist#ft#SetFileTypeSH("ksh")
 au BufNewFile,BufRead .profile* call dist#ft#SetFileTypeSH(getline(1))
 

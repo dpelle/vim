@@ -1,5 +1,6 @@
 /* filepath.c */
 int modify_fname(char_u *src, int tilde_file, int *usedlen, char_u **fnamep, char_u **bufp, int *fnamelen);
+void shorten_dir(char_u *str);
 void f_chdir(typval_T *argvars, typval_T *rettv);
 void f_delete(typval_T *argvars, typval_T *rettv);
 void f_executable(typval_T *argvars, typval_T *rettv);
@@ -24,6 +25,7 @@ void f_mkdir(typval_T *argvars, typval_T *rettv);
 void f_pathshorten(typval_T *argvars, typval_T *rettv);
 void f_readdir(typval_T *argvars, typval_T *rettv);
 void f_readdirex(typval_T *argvars, typval_T *rettv);
+void f_readblob(typval_T *argvars, typval_T *rettv);
 void f_readfile(typval_T *argvars, typval_T *rettv);
 void f_resolve(typval_T *argvars, typval_T *rettv);
 void f_tempname(typval_T *argvars, typval_T *rettv);
@@ -40,7 +42,6 @@ char_u *getnextcomp(char_u *fname);
 char_u *get_past_head(char_u *path);
 int vim_ispathsep(int c);
 int vim_ispathsep_nocolon(int c);
-void shorten_dir(char_u *str);
 int dir_of_file_exists(char_u *fname);
 int vim_fnamecmp(char_u *x, char_u *y);
 int vim_fnamencmp(char_u *x, char_u *y, size_t len);

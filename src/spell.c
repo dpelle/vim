@@ -66,10 +66,6 @@
 
 #define REGION_ALL 0xff		// word valid in all regions
 
-#define VIMSUGMAGIC "VIMsug"	// string at start of Vim .sug file
-#define VIMSUGMAGICL 6
-#define VIMSUGVERSION 1
-
 // Result values.  Lower number is accepted over higher one.
 #define SP_BANNED	-1
 #define SP_OK		0
@@ -2284,11 +2280,11 @@ did_set_spelllang(win_T *wp)
 		}
 	    }
     }
+    redraw_win_later(wp, NOT_VALID);
 
 theend:
     vim_free(spl_copy);
     recursive = FALSE;
-    redraw_win_later(wp, NOT_VALID);
     return ret_msg;
 }
 
@@ -3817,7 +3813,7 @@ ex_spelldump(exarg_T *eap)
 
     if (no_spell_checking(curwin))
 	return;
-    get_option_value((char_u*)"spl", &dummy, &spl, OPT_LOCAL);
+    (void)get_option_value((char_u*)"spl", &dummy, &spl, OPT_LOCAL);
 
     // Create a new empty buffer in a new window.
     do_cmdline_cmd((char_u *)"new");
@@ -4344,7 +4340,7 @@ valid_spellfile(char_u *val)
     char_u *s;
 
     for (s = val; *s != NUL; ++s)
-	if (!vim_isfilec(*s) && *s != ',')
+	if (!vim_isfilec(*s) && *s != ',' && *s != ' ')
 	    return FALSE;
     return TRUE;
 }

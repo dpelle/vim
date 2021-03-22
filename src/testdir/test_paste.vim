@@ -135,9 +135,7 @@ func CheckCopyPaste()
 endfunc
 
 func Test_xrestore()
-  if !has('xterm_clipboard')
-    return
-  endif
+  CheckFeature xterm_clipboard
   let display = $DISPLAY
   new
   call CheckCopyPaste()
@@ -148,6 +146,20 @@ func Test_xrestore()
   exe "xrestore " .. display
   call CheckCopyPaste()
 
+  bwipe!
+endfunc
+
+" Test for 'pastetoggle'
+func Test_pastetoggle()
+  new
+  set pastetoggle=<F4>
+  set nopaste
+  call feedkeys("iHello\<F4>", 'xt')
+  call assert_true(&paste)
+  call feedkeys("i\<F4>", 'xt')
+  call assert_false(&paste)
+  call assert_equal('Hello', getline(1))
+  set pastetoggle&
   bwipe!
 endfunc
 

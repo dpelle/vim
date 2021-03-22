@@ -1236,11 +1236,10 @@ key_press_event(GtkWidget *widget UNUSED,
     }
     else
     {
-	// <C-H> and <C-h> mean the same thing, always use "H"
-	if ((modifiers & MOD_MASK_CTRL) && ASCII_ISALPHA(key))
-	    key = TOUPPER_ASC(key);
+	// Some keys need adjustment when the Ctrl modifier is used.
+	key = may_adjust_key_for_ctrl(modifiers, key);
 
-	// May remove the shift modifier if it's included in the key.
+	// May remove the Shift modifier if it's included in the key.
 	modifiers = may_remove_shift_modifier(modifiers, key);
 
 	len = mb_char2bytes(key, string);
@@ -1254,11 +1253,16 @@ key_press_event(GtkWidget *widget UNUSED,
 	add_to_input_buf(string2, 3);
     }
 
-    if (len == 1 && ((string[0] == Ctrl_C && ctrl_c_interrupts)
-		   || (string[0] == intr_char && intr_char != Ctrl_C)))
+    // Check if the key interrupts.
     {
-	trash_input_buf();
-	got_int = TRUE;
+	int int_ch = check_for_interrupt(key, modifiers);
+
+	if (int_ch != NUL)
+	{
+	    trash_input_buf();
+	    string[0] = int_ch;
+	    len = 1;
+	}
     }
 
     add_to_input_buf(string, len);
@@ -2222,10 +2226,10 @@ sm_client_check_changed_any(GnomeClient	    *client UNUSED,
     save_cmdmod = cmdmod;
 
 # ifdef FEAT_BROWSE
-    cmdmod.browse = TRUE;
+    cmdmod.cmod_flags |= CMOD_BROWSE;
 # endif
 # if defined(FEAT_GUI_DIALOG) || defined(FEAT_CON_DIALOG)
-    cmdmod.confirm = TRUE;
+    cmdmod.cmod_flags |= CMOD_CONFIRM;
 # endif
     /*
      * If there are changed buffers, present the user with
@@ -2550,7 +2554,8 @@ mainwin_realize(GtkWidget *widget UNUSED, gpointer data UNUSED)
 
 	gtk_window_set_icon_list(GTK_WINDOW(gui.mainwin), icons);
 
-	g_list_foreach(icons, (GFunc)&g_object_unref, NULL);
+	// TODO: is this type cast OK?
+	g_list_foreach(icons, (GFunc)(void *)&g_object_unref, NULL);
 	g_list_free(icons);
     }
 
@@ -3087,8 +3092,8 @@ icon_size_changed_foreach(GtkWidget *widget, gpointer user_data)
 	    const gchar *icon_name;
 
 	    gtk_image_get_icon_name(image, &icon_name, NULL);
-
-	    gtk_image_set_from_icon_name(image, icon_name, icon_size);
+	    image = (GtkImage *)gtk_image_new_from_icon_name(
+							 icon_name, icon_size);
 	}
 # else
 	// User-defined icons are stored in a GtkIconSet
@@ -3806,16 +3811,16 @@ gui_mch_init(void)
 	    G_CALLBACK(on_tabline_menu), G_OBJECT(tabline_menu));
 #endif // FEAT_GUI_TABLINE
 
-    gui.formwin = gtk_form_new();
+    gui.formwin = gui_gtk_form_new();
     gtk_container_set_border_width(GTK_CONTAINER(gui.formwin), 0);
 #if !GTK_CHECK_VERSION(3,0,0)
     gtk_widget_set_events(gui.formwin, GDK_EXPOSURE_MASK);
 #endif
+#if GTK_CHECK_VERSION(3,22,2)
+    gtk_widget_set_name(gui.formwin, "vim-gtk-form");
+#endif
 
     gui.drawarea = gtk_drawing_area_new();
-#if GTK_CHECK_VERSION(3,22,2)
-    gtk_widget_set_name(gui.drawarea, "vim-gui-drawarea");
-#endif
 #if GTK_CHECK_VERSION(3,0,0)
     gui.surface = NULL;
     gui.by_signal = FALSE;
@@ -3835,7 +3840,7 @@ gui_mch_init(void)
 			  GDK_POINTER_MOTION_HINT_MASK);
 
     gtk_widget_show(gui.drawarea);
-    gtk_form_put(GTK_FORM(gui.formwin), gui.drawarea, 0, 0);
+    gui_gtk_form_put(GTK_FORM(gui.formwin), gui.drawarea, 0, 0);
     gtk_widget_show(gui.formwin);
     gtk_box_pack_start(GTK_BOX(vbox), gui.formwin, TRUE, TRUE, 0);
 
@@ -4026,18 +4031,21 @@ set_cairo_source_rgba_from_color(cairo_t *cr, guicolor_T color)
     void
 gui_mch_new_colors(void)
 {
-    if (gui.drawarea != NULL && gtk_widget_get_window(gui.drawarea) != NULL)
+    if (gui.drawarea != NULL
+#if GTK_CHECK_VERSION(3,22,2)
+	    && gui.formwin != NULL
+#endif
+	    && gtk_widget_get_window(gui.drawarea) != NULL)
     {
 #if !GTK_CHECK_VERSION(3,22,2)
 	GdkWindow * const da_win = gtk_widget_get_window(gui.drawarea);
 #endif
-
 #if GTK_CHECK_VERSION(3,22,2)
-	GtkStyleContext * const context
-	    = gtk_widget_get_style_context(gui.drawarea);
+	GtkStyleContext * const context =
+				     gtk_widget_get_style_context(gui.formwin);
 	GtkCssProvider * const provider = gtk_css_provider_new();
 	gchar * const css = g_strdup_printf(
-		"widget#vim-gui-drawarea {\n"
+		"widget#vim-gtk-form {\n"
 		"  background-color: #%.2lx%.2lx%.2lx;\n"
 		"}\n",
 		 (gui.back_pixel >> 16) & 0xff,
@@ -4114,9 +4122,9 @@ form_configure_event(GtkWidget *widget UNUSED,
     if (gtk_socket_id != 0)
 	usable_height -= (gui.char_height - (gui.char_height/2)); // sic.
 
-    gtk_form_freeze(GTK_FORM(gui.formwin));
+    gui_gtk_form_freeze(GTK_FORM(gui.formwin));
     gui_resize_shell(event->width, usable_height);
-    gtk_form_thaw(GTK_FORM(gui.formwin));
+    gui_gtk_form_thaw(GTK_FORM(gui.formwin));
 
     return TRUE;
 }
@@ -4145,6 +4153,88 @@ mainwin_destroy_cb(GObject *object UNUSED, gpointer data UNUSED)
 #ifdef USE_GRESOURCE
     gui_gtk_unregister_resource();
 #endif
+}
+
+    void
+gui_gtk_get_screen_geom_of_win(
+	GtkWidget *wid,
+	int point_x,	    // x position of window if not initialized
+	int point_y,	    // y position of window if not initialized
+	int *screen_x,
+	int *screen_y,
+	int *width,
+	int *height)
+{
+    GdkRectangle geometry;
+    GdkWindow *win = gtk_widget_get_window(wid);
+#if GTK_CHECK_VERSION(3,22,0)
+    GdkDisplay *dpy;
+    GdkMonitor *monitor;
+
+    if (wid != NULL && gtk_widget_get_realized(wid))
+	dpy = gtk_widget_get_display(wid);
+    else
+	dpy = gdk_display_get_default();
+    if (win != NULL)
+	monitor = gdk_display_get_monitor_at_window(dpy, win);
+    else
+	monitor = gdk_display_get_monitor_at_point(dpy, point_x, point_y);
+    gdk_monitor_get_geometry(monitor, &geometry);
+#else
+    GdkScreen* screen;
+    int monitor;
+
+    if (wid != NULL && gtk_widget_has_screen(wid))
+	screen = gtk_widget_get_screen(wid);
+    else
+	screen = gdk_screen_get_default();
+    if (win != NULL)
+	monitor = gdk_screen_get_monitor_at_window(screen, win);
+    else
+	monitor = gdk_screen_get_monitor_at_point(screen, point_x, point_y);
+    gdk_screen_get_monitor_geometry(screen, monitor, &geometry);
+#endif
+    *screen_x = geometry.x;
+    *screen_y = geometry.y;
+    *width = geometry.width;
+    *height = geometry.height;
+}
+
+/*
+ * The screen size is used to make sure the initial window doesn't get bigger
+ * than the screen.  This subtracts some room for menubar, toolbar and window
+ * decorations.
+ */
+    static void
+gui_gtk_get_screen_dimensions(
+	int point_x,
+	int point_y,
+	int *screen_w,
+	int *screen_h)
+{
+    int	    x, y;
+
+    gui_gtk_get_screen_geom_of_win(gui.mainwin, point_x, point_y,
+						   &x, &y, screen_w, screen_h);
+
+    // Subtract 'guiheadroom' from the height to allow some room for the
+    // window manager (task list and window title bar).
+    *screen_h -= p_ghr;
+
+    /*
+     * FIXME: dirty trick: Because the gui_get_base_height() doesn't include
+     * the toolbar and menubar for GTK, we subtract them from the screen
+     * height, so that the window size can be made to fit on the screen.
+     * This should be completely changed later.
+     */
+    *screen_w -= get_menu_tool_width();
+    *screen_h -= get_menu_tool_height();
+}
+
+    void
+gui_mch_get_screen_dimensions(int *screen_w, int *screen_h)
+{
+    gui_gtk_get_screen_dimensions(0, 0, screen_w, screen_h);
 }
 
 
@@ -4242,7 +4332,12 @@ gui_mch_open(void)
 	if (mask & (XValue | YValue))
 	{
 	    int ww, hh;
+
+#ifdef FEAT_GUI_GTK
+	    gui_gtk_get_screen_dimensions(x, y, &ww, &hh);
+#else
 	    gui_mch_get_screen_dimensions(&ww, &hh);
+#endif
 	    hh += p_ghr + get_menu_tool_height();
 	    ww += get_menu_tool_width();
 	    if (mask & XNegative)
@@ -4375,11 +4470,14 @@ gui_mch_open(void)
     return OK;
 }
 
-
+/*
+ * Clean up for when exiting Vim.
+ */
     void
 gui_mch_exit(int rc UNUSED)
 {
-    if (gui.mainwin != NULL)
+    // Clean up, unless we don't want to invoke free().
+    if (gui.mainwin != NULL && !really_exiting)
 	gtk_widget_destroy(gui.mainwin);
 }
 
@@ -4527,64 +4625,6 @@ gui_mch_set_shellsize(int width, int height,
     gui_mch_update();
 }
 
-    void
-gui_gtk_get_screen_geom_of_win(
-	GtkWidget *wid,
-	int *screen_x,
-	int *screen_y,
-	int *width,
-	int *height)
-{
-    GdkRectangle geometry;
-    GdkWindow *win = gtk_widget_get_window(wid);
-#if GTK_CHECK_VERSION(3,22,0)
-    GdkDisplay *dpy = gtk_widget_get_display(wid);
-    GdkMonitor *monitor = gdk_display_get_monitor_at_window(dpy, win);
-
-    gdk_monitor_get_geometry(monitor, &geometry);
-#else
-    GdkScreen* screen;
-    int monitor;
-
-    if (wid != NULL && gtk_widget_has_screen(wid))
-	screen = gtk_widget_get_screen(wid);
-    else
-	screen = gdk_screen_get_default();
-    monitor = gdk_screen_get_monitor_at_window(screen, win);
-    gdk_screen_get_monitor_geometry(screen, monitor, &geometry);
-#endif
-    *screen_x = geometry.x;
-    *screen_y = geometry.y;
-    *width = geometry.width;
-    *height = geometry.height;
-}
-
-/*
- * The screen size is used to make sure the initial window doesn't get bigger
- * than the screen.  This subtracts some room for menubar, toolbar and window
- * decorations.
- */
-    void
-gui_mch_get_screen_dimensions(int *screen_w, int *screen_h)
-{
-    int	    x, y;
-
-    gui_gtk_get_screen_geom_of_win(gui.mainwin, &x, &y, screen_w, screen_h);
-
-    // Subtract 'guiheadroom' from the height to allow some room for the
-    // window manager (task list and window title bar).
-    *screen_h -= p_ghr;
-
-    /*
-     * FIXME: dirty trick: Because the gui_get_base_height() doesn't include
-     * the toolbar and menubar for GTK, we subtract them from the screen
-     * height, so that the window size can be made to fit on the screen.
-     * This should be completely changed later.
-     */
-    *screen_w -= get_menu_tool_width();
-    *screen_h -= get_menu_tool_height();
-}
-
 #if defined(FEAT_TITLE) || defined(PROTO)
     void
 gui_mch_settitle(char_u *title, char_u *icon UNUSED)
@@ -4718,9 +4758,10 @@ gui_mch_adjust_charheight(void)
 
     pango_font_metrics_unref(metrics);
 
-    // Round up, but not when the value is very close (e.g. 15.0009).
-    gui.char_height = (ascent + descent + PANGO_SCALE - 3) / PANGO_SCALE
-								+ p_linespace;
+    // Round up when the value is more than about 1/16 of a pixel above a whole
+    // pixel (12.0624 becomes 12, 12.07 becomes 13).  Then add 'linespace'.
+    gui.char_height = (ascent + descent + (PANGO_SCALE * 15) / 16)
+						   / PANGO_SCALE + p_linespace;
     // LINTED: avoid warning: bitwise operation on signed value
     gui.char_ascent = PANGO_PIXELS(ascent + p_linespace * PANGO_SCALE / 2);
 
@@ -4962,7 +5003,8 @@ ascii_glyph_table_init(void)
 	}
     }
 
-    g_list_foreach(item_list, (GFunc)&pango_item_free, NULL);
+    // TODO: is this type cast OK?
+    g_list_foreach(item_list, (GFunc)(void *)&pango_item_free, NULL);
     g_list_free(item_list);
     pango_attr_list_unref(attr_list);
 }

@@ -60,6 +60,17 @@
 #define P_RWINONLY   0x10000000L // only redraw current window
 #define P_MLE	     0x20000000L // under control of 'modelineexpr'
 
+// Returned by get_option_value().
+typedef enum {
+    gov_unknown,
+    gov_bool,
+    gov_number,
+    gov_string,
+    gov_hidden_bool,
+    gov_hidden_number,
+    gov_hidden_string
+} getoption_T;
+
 /*
  * Default values for 'errorformat'.
  * The "%f|%l| %m" one is used for when the contents of the quickfix window is
@@ -701,9 +712,6 @@ EXTERN int	p_lpl;		// 'loadplugins'
 #if defined(DYNAMIC_LUA)
 EXTERN char_u	*p_luadll;	// 'luadll'
 #endif
-#ifdef FEAT_GUI_MAC
-EXTERN int	p_macatsui;	// 'macatsui'
-#endif
 EXTERN int	p_magic;	// 'magic'
 EXTERN char_u	*p_menc;	// 'makeencoding'
 #ifdef FEAT_QUICKFIX
@@ -1223,6 +1231,7 @@ enum
 enum
 {
     WV_LIST = 0
+    , WV_LCS
 #ifdef FEAT_ARABIC
     , WV_ARAB
 #endif
